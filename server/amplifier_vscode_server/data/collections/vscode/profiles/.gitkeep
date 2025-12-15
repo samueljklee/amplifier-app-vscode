@@ -1,0 +1,4 @@
+# Placeholder for future vscode-specific profiles
+# 
+# Current approach: Use sam-collection or foundation profiles for validation
+# Future: Refine vscode:code, vscode:architect, vscode:ask after core functionality works

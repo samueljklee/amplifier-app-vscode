@@ -1,0 +1,7 @@
+[project]
+name = "vscode-collection"
+version = "1.0.0"
+description = "VS Code specific profiles for Amplifier"
+
+[project.optional-dependencies]
+# No additional dependencies required - uses foundation modules

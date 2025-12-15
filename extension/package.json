@@ -1,0 +1,124 @@
+{
+    "name": "amplifier-vscode",
+    "displayName": "Amplifier AI Assistant",
+    "description": "Native AI assistance powered by Amplifier",
+    "version": "0.1.0",
+    "publisher": "microsoft",
+    "engines": {
+        "vscode": "^1.85.0"
+    },
+    "categories": [
+        "Other",
+        "Machine Learning"
+    ],
+    "activationEvents": [
+        "onStartupFinished"
+    ],
+    "main": "./dist/extension.js",
+    "contributes": {
+        "commands": [
+            {
+                "command": "amplifier.showChat",
+                "title": "Amplifier: Show Chat"
+            },
+            {
+                "command": "amplifier.startServer",
+                "title": "Amplifier: Start Server"
+            },
+            {
+                "command": "amplifier.stopServer",
+                "title": "Amplifier: Stop Server"
+            },
+            {
+                "command": "amplifier.setApiKey",
+                "title": "Amplifier: Set API Key"
+            },
+            {
+                "command": "amplifier.explainSelection",
+                "title": "Amplifier: Explain Selection"
+            },
+            {
+                "command": "amplifier.improveSelection",
+                "title": "Amplifier: Improve Selection"
+            }
+        ],
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "amplifier",
+                    "title": "Amplifier",
+                    "icon": "resources/amplifier.svg"
+                }
+            ]
+        },
+        "views": {
+            "amplifier": [
+                {
+                    "type": "webview",
+                    "id": "amplifier.chatView",
+                    "name": "Chat"
+                }
+            ]
+        },
+        "configuration": {
+            "title": "Amplifier",
+            "properties": {
+                "amplifier.enabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Enable Amplifier AI assistant"
+                },
+                "amplifier.server.autoStart": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Automatically start the Amplifier server"
+                },
+                "amplifier.server.port": {
+                    "type": "number",
+                    "default": 8765,
+                    "description": "Port for the Amplifier server"
+                },
+                "amplifier.server.host": {
+                    "type": "string",
+                    "default": "127.0.0.1",
+                    "description": "Host for the Amplifier server"
+                },
+                "amplifier.profile": {
+                    "type": "string",
+                    "default": "vscode-simple",
+                    "description": "Default Amplifier profile"
+                }
+            }
+        }
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run package",
+        "compile": "webpack",
+        "watch": "webpack --watch",
+        "package": "webpack --mode production --devtool hidden-source-map",
+        "compile-tests": "tsc -p . --outDir out",
+        "watch-tests": "tsc -p . -w --outDir out",
+        "pretest": "npm run compile-tests && npm run compile && npm run lint",
+        "lint": "eslint src",
+        "test": "vscode-test"
+    },
+    "devDependencies": {
+        "@types/eventsource": "^1.1.15",
+        "@types/node": "^20.0.0",
+        "@types/vscode": "^1.85.0",
+        "@typescript-eslint/eslint-plugin": "^7.0.0",
+        "@typescript-eslint/parser": "^7.0.0",
+        "@vscode/test-cli": "^0.0.10",
+        "@vscode/test-electron": "^2.3.0",
+        "copy-webpack-plugin": "^13.0.1",
+        "eslint": "^8.57.0",
+        "ts-loader": "^9.5.0",
+        "typescript": "^5.3.0",
+        "vsce": "^2.15.0",
+        "webpack": "^5.90.0",
+        "webpack-cli": "^5.1.0"
+    },
+    "dependencies": {
+        "eventsource": "^4.1.0"
+    }
+}

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Amplifier Chat</title>
+</head>
+<body>
+    <!-- Welcome screen (shown when no API key) -->
+    <div id="welcome-screen" class="hidden">
+        <div class="welcome-content">
+            <h2>Welcome to Amplifier</h2>
+            <p>To get started, you need to set your Anthropic API key.</p>
+            <button id="set-api-key-btn" class="primary-button">Set API Key</button>
+            <p class="help-text">
+                Don't have an API key? 
+                <a href="https://console.anthropic.com/settings/keys">Get one from Anthropic</a>
+            </p>
+        </div>
+    </div>
+
+    <!-- Main chat interface -->
+    <div id="chat-interface" class="hidden">
+        <!-- Messages container -->
+        <div id="messages"></div>
+
+        <!-- Thinking indicator -->
+        <div id="thinking" class="thinking-indicator hidden">
+            <div class="thinking-spinner"></div>
+            <div id="thinking-text" class="thinking-text"></div>
+        </div>
+
+        <!-- Tool execution display -->
+        <div id="tool-execution" class="tool-display hidden">
+            <div class="tool-header">
+                <span id="tool-name"></span>
+                <span id="tool-operation"></span>
+            </div>
+            <div id="tool-output"></div>
+        </div>
+
+        <!-- Input area -->
+        <div id="input-area">
+            <textarea 
+                id="prompt-input" 
+                placeholder="Ask Amplifier..."
+                rows="3"
+            ></textarea>
+            <div class="input-controls">
+                <div id="token-display" class="token-counter hidden">
+                    Tokens: <span id="token-count">0</span>
+                </div>
+                <button id="send-btn" class="send-button">Send</button>
+            </div>
+        </div>
+
+        <!-- Error display -->
+        <div id="error-display" class="error-banner hidden">
+            <div class="error-icon">⚠️</div>
+            <div class="error-content">
+                <div id="error-message"></div>
+                <div id="error-action" class="hidden"></div>
+            </div>
+            <button id="error-dismiss" class="error-dismiss">×</button>
+        </div>
+    </div>
+
+    <!-- Status indicator -->
+    <div id="status-bar">
+        <span id="status-text">Initializing...</span>
+        <span id="session-info" class="hidden"></span>
+    </div>
+</body>
+</html>
