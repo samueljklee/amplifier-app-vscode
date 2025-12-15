@@ -60,13 +60,12 @@ export class EventStreamManager {
 
             es.onmessage = (event: any) => {
                 try {
-                    console.log('[EventStream] Raw SSE data:', event.data);
-                    console.log('[EventStream] Type:', typeof event.data);
                     const message: AmplifierEvent = JSON.parse(event.data);
+                    console.log('[EventStream] SSE event received:', message.event);
                     this.dispatchEvent(message, handlers);
                 } catch (error) {
-                    console.error('Failed to parse SSE message:', error);
-                    console.error('Raw data was:', event.data);
+                    console.error('[EventStream] Failed to parse SSE message:', error);
+                    // Note: Not logging raw data to avoid exposing sensitive information
                 }
             };
 
