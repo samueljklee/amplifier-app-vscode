@@ -14,7 +14,7 @@ session:
 providers:
   - module: provider-anthropic
     config:
-      model: claude-3-5-sonnet-20241022
+      beta_headers: "context-1m-2025-08-07"
       debug: false
       priority: 100
 

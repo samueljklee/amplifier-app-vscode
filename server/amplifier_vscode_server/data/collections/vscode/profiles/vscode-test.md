@@ -17,7 +17,8 @@ providers:
   - module: provider-anthropic
     source: git+https://github.com/microsoft/amplifier-module-provider-anthropic@main
     config:
-      model: claude-3-5-sonnet-20241022
+      model: claude-sonnet-4-5
+      beta_headers: "context-1m-2025-08-07"
 
 tools:
   - module: tool-bash
