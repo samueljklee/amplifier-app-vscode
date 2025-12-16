@@ -12,7 +12,7 @@ from amplifier_collections import CollectionResolver
 from amplifier_module_resolution import StandardModuleSourceResolver
 
 from .ux_systems import VSCodeApprovalSystem, VSCodeDisplaySystem
-from ..hooks import register_streaming_hooks
+from ..hooks import register_streaming_hooks, register_approval_hook
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +91,7 @@ class SessionRunner:
         # Approval handling
         self.pending_approval: dict[str, Any] | None = None
         self.approval_future: asyncio.Future | None = None
+        self.always_allow_tools: bool = False  # Session-scoped flag for "Always Allow"
         
         # UX systems
         self.approval_system = VSCodeApprovalSystem(self)
@@ -216,6 +217,11 @@ class SessionRunner:
             )
             logger.info(f"[SESSION START] AmplifierSession created")
             
+            # Store reference to session_runner for hooks to access
+            self.session._session_runner = self
+            logger.debug(f"[SESSION START] Session runner reference stored for hook access")
+            logger.info(f"[SESSION START] 🔒 always_allow_tools flag: {self.always_allow_tools}")
+            
             # Validation summary
             logger.info(f"[SESSION START] ═══════════════════════════════════════")
             logger.info(f"[SESSION START] 🔍 Workspace Directory Validation:")
@@ -245,6 +251,13 @@ class SessionRunner:
             logger.info(f"[SESSION START] About to register streaming bridge hooks for session {self.session_id}")
             self._hook_unregisters = register_streaming_hooks(self.session.coordinator)
             logger.info(f"[SESSION START] Streaming bridge hooks registered: {len(self._hook_unregisters)} hooks")
+            
+            # Register approval gate hook
+            # This hook intercepts tool:pre events and returns action="ask_user" for destructive tools
+            logger.info(f"[SESSION START] Registering approval gate hook...")
+            approval_unregister = register_approval_hook(self.session.coordinator)
+            self._hook_unregisters.append(approval_unregister)
+            logger.info(f"[SESSION START] Approval gate hook registered")
             
             # Verify hooks were registered
             hooks = self.session.coordinator.hooks
@@ -388,7 +401,7 @@ class SessionRunner:
         """Resolve a pending approval request.
         
         Args:
-            decision: The user's decision (e.g., "Allow", "Deny")
+            decision: The user's decision (e.g., "Allow", "Deny", "AlwaysAllow")
         """
         if not self.pending_approval:
             raise ValueError("No pending approval")
@@ -396,8 +409,19 @@ class SessionRunner:
         if not self.approval_future:
             raise ValueError("No approval future set")
         
+        logger.info(f"[APPROVAL] 📥 resolve_approval() called with decision: {decision}")
+        logger.info(f"[APPROVAL]   Current always_allow_tools: {self.always_allow_tools}")
+        
+        # Check if user chose "Always Allow"
+        if decision == "AlwaysAllow":
+            self.always_allow_tools = True
+            logger.info(f"[SESSION] 🔓 Always Allow ENABLED for session {self.session_id}")
+            decision = "Allow"  # Treat as Allow for this request
+        
         # Resolve the future with the decision
+        logger.info(f"[APPROVAL] Setting future result to: {decision}")
         self.approval_future.set_result(decision)
+        logger.info(f"[APPROVAL] ✅ Future resolved")
         
         # Clear pending state
         self.pending_approval = None

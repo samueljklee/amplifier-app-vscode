@@ -1,10 +1,13 @@
 """VS Code-specific approval and display systems for Amplifier."""
 
 import asyncio
+import logging
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .session_runner import SessionRunner
+
+logger = logging.getLogger(__name__)
 
 
 class VSCodeApprovalSystem:
@@ -54,6 +57,7 @@ class VSCodeApprovalSystem:
         self.session_runner.status = "awaiting_approval"
         
         # Emit approval:required event
+        logger.info(f"[APPROVAL SYSTEM] 📡 Emitting approval:required SSE event...")
         await self.session_runner._emit_event("approval:required", {
             "approval_id": approval_id,
             "prompt": prompt,
@@ -62,6 +66,7 @@ class VSCodeApprovalSystem:
             "default": default,
             "context": context or {},
         })
+        logger.info(f"[APPROVAL SYSTEM] ✅ approval:required event emitted")
         
         try:
             # Wait for user decision with timeout

@@ -284,6 +284,25 @@ async def submit_approval(session_id: str, request: ApprovalRequest) -> Approval
         )
 
 
+@router.post("/sessions/{session_id}/test-approval")
+async def test_approval_flow(session_id: str):
+    """Test endpoint to trigger approval flow manually."""
+    runner = _sessions.get(session_id)
+    if not runner:
+        raise HTTPException(404, "Session not found")
+    
+    # Manually trigger approval request for testing
+    asyncio.create_task(runner.approval_system.request_approval(
+        prompt="Test approval: Allow this test operation?",
+        options=["Allow", "Deny", "Skip"],
+        timeout=30.0,
+        default="deny",
+        context={"test": True, "operation": "test_approval_flow"}
+    ))
+    
+    return {"status": "approval_requested", "message": "Check VS Code for approval dialog"}
+
+
 @router.delete("/sessions/{session_id}", response_model=DeleteSessionResponse)
 async def delete_session(session_id: str) -> DeleteSessionResponse:
     """Stop and delete a session."""

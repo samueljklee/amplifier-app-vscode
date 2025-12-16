@@ -12,6 +12,7 @@ import { AmplifierClient } from '../client/AmplifierClient';
 import { EventStreamManager } from '../client/EventStream';
 import { CredentialsManager } from '../services/CredentialsManager';
 import { ContextGatherer } from '../services/ContextGatherer';
+import { ApprovalHandler } from '../services/ApprovalHandler';
 import {
     CreateSessionRequest,
     WorkspaceContext,
@@ -30,6 +31,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private _eventStream: EventStreamManager;
     private _credentialsManager: CredentialsManager;
     private _contextGatherer: ContextGatherer;
+    private _approvalHandler: ApprovalHandler;
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
@@ -41,6 +43,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this._eventStream = eventStream;
         this._credentialsManager = credentialsManager;
         this._contextGatherer = new ContextGatherer();
+        this._approvalHandler = new ApprovalHandler(client, undefined);
     }
 
     /**
@@ -53,6 +56,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     ): void | Thenable<void> {
         console.log('[ChatViewProvider] resolveWebviewView called');
         this._view = webviewView;
+
+        // Update approval handler with webview reference
+        (this._approvalHandler as any).webviewView = webviewView;
 
         // Configure webview
         webviewView.webview.options = {
@@ -123,8 +129,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 await this._stopSession();
                 break;
             
-            case 'submitApproval':
-                await this._submitApproval(message.decision);
+            case 'approvalDecision':
+                await this._approvalHandler.handleApprovalDecision(
+                    message.approvalId,
+                    message.decision
+                );
                 break;
             
             default:
@@ -358,18 +367,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 });
             },
 
-            onApprovalRequired: (data: ApprovalRequiredEvent) => {
-                this._postMessage({
-                    type: 'approvalRequired',
-                    data: {
-                        approval_id: data.approval_id,
-                        prompt: data.prompt,
-                        options: data.options,
-                        timeout: data.timeout,
-                        default: data.default,
-                        context: data.context
-                    }
-                });
+            onApprovalRequired: async (data: ApprovalRequiredEvent) => {
+                console.log('[ChatViewProvider] Approval required event received:', data);
+                
+                // Handle approval with inline webview UI
+                if (this._sessionId) {
+                    await this._approvalHandler.handleApprovalRequest(this._sessionId, data);
+                }
             },
 
             onPromptComplete: (data: PromptCompleteEvent) => {
@@ -517,6 +521,40 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     <div id="chat-interface" class="hidden">
         <!-- Messages container -->
         <div id="messages" role="log" aria-live="polite" aria-label="Chat messages"></div>
+
+        <!-- Approval bar (inline, above input) -->
+        <div id="approval-bar" class="approval-bar" role="dialog" aria-labelledby="approval-prompt" aria-describedby="approval-context" hidden>
+            <div class="approval-content">
+                <!-- Row 1: Icon + Text Content -->
+                <div class="approval-row approval-text-row">
+                    <div class="approval-icon" aria-hidden="true">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M8 1a7 7 0 110 14A7 7 0 018 1zm0 10a1 1 0 100 2 1 1 0 000-2zm0-8a1 1 0 00-1 1v5a1 1 0 002 0V4a1 1 0 00-1-1z"/>
+                        </svg>
+                    </div>
+                    <div class="approval-text">
+                        <div id="approval-prompt" class="approval-prompt"></div>
+                        <div id="approval-context" class="approval-context"></div>
+                    </div>
+                </div>
+                
+                <!-- Row 2: Actions + Countdown -->
+                <div class="approval-row approval-actions-row">
+                    <div class="approval-actions">
+                        <button id="approval-always-allow" class="approval-button approval-button-always" type="button">
+                            <span>Always</span>
+                        </button>
+                        <button id="approval-allow" class="approval-button approval-button-primary" type="button">
+                            <span>Allow</span>
+                        </button>
+                        <button id="approval-deny" class="approval-button approval-button-secondary" type="button">
+                            <span>Deny</span>
+                        </button>
+                    </div>
+                    <div class="approval-timeout" aria-live="polite"></div>
+                </div>
+            </div>
+        </div>
 
         <!-- Input area -->
         <div id="input-area">

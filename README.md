@@ -94,7 +94,7 @@ code --install-extension amplifier-vscode-0.1.0.vsix
 
 Amplifier supports profiles for different AI configurations:
 
-- **foundation**: Minimal tools, basic capabilities
+- **Foundation**: Minimal tools, basic capabilities
 - **dev**: Full development tools (filesystem, bash, web, search)
 - **full**: All tools and extended capabilities
 

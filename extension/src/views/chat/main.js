@@ -6,6 +6,140 @@
 // VS Code API (injected by VS Code)
 const vscode = acquireVsCodeApi();
 
+// ===== APPROVAL BAR CLASS =====
+class ApprovalBar {
+    constructor() {
+        this.element = document.getElementById('approval-bar');
+        this.promptEl = document.getElementById('approval-prompt');
+        this.contextEl = document.getElementById('approval-context');
+        this.timeoutEl = this.element.querySelector('.approval-timeout');
+        this.alwaysAllowBtn = document.getElementById('approval-always-allow');
+        this.allowBtn = document.getElementById('approval-allow');
+        this.denyBtn = document.getElementById('approval-deny');
+        this.currentRequest = null;
+        this.timeoutId = null;
+        this.countdownId = null;
+
+        this.init();
+    }
+
+    init() {
+        // Button handlers
+        this.alwaysAllowBtn.addEventListener('click', () => this.handleAlwaysAllow());
+        this.allowBtn.addEventListener('click', () => this.handleAllow());
+        this.denyBtn.addEventListener('click', () => this.handleDeny());
+
+        // Keyboard shortcuts: Enter = Allow, Escape = Deny
+        // (Shift+Enter removed to avoid conflict with textarea newlines)
+        this.element.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                this.handleAllow();
+            } else if (e.key === 'Escape') {
+                this.handleDeny();
+            }
+        });
+    }
+
+    show(data) {
+        this.currentRequest = data;
+
+        // Update content
+        this.promptEl.textContent = data.prompt;
+        this.contextEl.textContent = data.context || '';
+
+        // Show bar with animation
+        this.element.removeAttribute('hidden');
+        this.element.dataset.state = 'showing';
+
+        // Focus allow button after animation
+        setTimeout(() => this.allowBtn.focus(), 300);
+
+        // Start timeout countdown
+        if (data.timeout > 0) {
+            this.startTimeout(data.timeout * 1000); // Convert to ms
+        }
+    }
+
+    hide() {
+        this.element.dataset.state = 'hiding';
+        
+        setTimeout(() => {
+            this.element.setAttribute('hidden', '');
+            this.element.dataset.state = '';
+            this.currentRequest = null;
+            this.clearTimeout();
+        }, 250);
+    }
+
+    handleAlwaysAllow() {
+        if (!this.currentRequest) return;
+        
+        vscode.postMessage({
+            type: 'approvalDecision',
+            approvalId: this.currentRequest.approvalId,
+            decision: 'AlwaysAllow'
+        });
+        
+        this.hide();
+    }
+
+    handleAllow() {
+        if (!this.currentRequest) return;
+        
+        vscode.postMessage({
+            type: 'approvalDecision',
+            approvalId: this.currentRequest.approvalId,
+            decision: 'Allow'
+        });
+        
+        this.hide();
+    }
+
+    handleDeny() {
+        if (!this.currentRequest) return;
+        
+        vscode.postMessage({
+            type: 'approvalDecision',
+            approvalId: this.currentRequest.approvalId,
+            decision: 'Deny'
+        });
+        
+        this.hide();
+    }
+
+    startTimeout(duration) {
+        const endTime = Date.now() + duration;
+
+        const updateCountdown = () => {
+            const remaining = Math.max(0, endTime - Date.now());
+            const seconds = Math.ceil(remaining / 1000);
+            this.timeoutEl.textContent = `${seconds}s`;
+
+            if (remaining > 0) {
+                this.countdownId = requestAnimationFrame(updateCountdown);
+            }
+        };
+        updateCountdown();
+
+        this.timeoutId = setTimeout(() => {
+            this.handleDeny(); // Auto-deny on timeout
+        }, duration);
+    }
+
+    clearTimeout() {
+        if (this.timeoutId) {
+            clearTimeout(this.timeoutId);
+            this.timeoutId = null;
+        }
+        if (this.countdownId) {
+            cancelAnimationFrame(this.countdownId);
+            this.countdownId = null;
+        }
+        this.timeoutEl.textContent = '';
+    }
+}
+
 // UI Elements
 const elements = {
     welcomeScreen: document.getElementById('welcome-screen'),
@@ -70,6 +204,9 @@ elements.errorDismiss.addEventListener('click', hideError);
 console.log('[Webview] Script loaded, sending ready message');
 vscode.postMessage({ type: 'ready' });
 
+// Initialize approval bar
+const approvalBar = new ApprovalBar();
+
 // Message handling from extension
 window.addEventListener('message', (event) => {
     const message = event.data;
@@ -118,6 +255,14 @@ window.addEventListener('message', (event) => {
             break;
         case 'promptComplete':
             handlePromptComplete(message);
+            break;
+        case 'showApproval':
+            approvalBar.show({
+                prompt: message.prompt,
+                context: message.context,
+                timeout: message.timeout,
+                approvalId: message.approvalId
+            });
             break;
         case 'error':
             showError(message.message || message.error, message.action, 'error');

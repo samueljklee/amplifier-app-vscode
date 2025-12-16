@@ -218,17 +218,19 @@ For detailed architecture, see `docs/ARCHITECTURE.md`. Quick summary:
 #### P3.1 - Approval Handler
 | ID | Task | Dependencies | Agent | Status |
 |----|------|--------------|-------|--------|
-| P3.1.1 | Create `extension/src/services/ApprovalHandler.ts` | P2.1.1 | modular-builder | ☐ |
-| P3.1.2 | Implement `handleApprovalRequest()` with QuickPick | P3.1.1 | modular-builder | ☐ |
-| P3.1.3 | Implement timeout handling with default decision | P3.1.2 | modular-builder | ☐ |
-| P3.1.4 | Integrate ApprovalHandler with ChatViewProvider | P3.1.2, P2.6.1 | modular-builder | ☐ |
+| P3.1.1 | Create `extension/src/services/ApprovalHandler.ts` | P2.1.1 | modular-builder | ☑ |
+| P3.1.2 | Implement `handleApprovalRequest()` with QuickPick | P3.1.1 | modular-builder | ☑ |
+| P3.1.3 | Implement timeout handling with default decision | P3.1.2 | modular-builder | ☑ |
+| P3.1.4 | Integrate ApprovalHandler with ChatViewProvider | P3.1.2, P2.6.1 | modular-builder | ☑ |
 
 #### P3.2 - Server Approval Support
 | ID | Task | Dependencies | Agent | Status |
 |----|------|--------------|-------|--------|
-| P3.2.1 | Implement `POST /sessions/{id}/approval` endpoint | P2.3.3 | modular-builder | ☐ |
-| P3.2.2 | Implement `VSCodeApprovalSystem.resolve()` | P2.4.7 | modular-builder | ☐ |
-| P3.2.3 | Wire approval events through SSE | P3.2.1, P2.3.6 | modular-builder | ☐ |
+| P3.2.1 | Implement `POST /sessions/{id}/approval` endpoint | P2.3.3 | modular-builder | ☑ |
+| P3.2.2 | Implement `VSCodeApprovalSystem.resolve()` | P2.4.7 | modular-builder | ☑ |
+| P3.2.3 | Wire approval events through SSE | P3.2.1, P2.3.6 | modular-builder | ☑ |
+| P3.2.4 | **CRITICAL**: Create approval hook handler to intercept tool:pre | P3.2.2 | modular-builder | ☑ |
+| P3.2.5 | Register approval hook in SessionRunner.start() | P3.2.4 | modular-builder | ☑ |
 
 #### P3.3 - Phase 3 Integration Tests
 | ID | Task | Dependencies | Agent | Status |
@@ -603,6 +605,71 @@ _No active tasks yet. Claim tasks from the backlog above._
     - `extension/src/views/chat/styles.css` (+278 lines, responsive CSS + theming)
   - **Quality:** Responsive, accessible, theme-adaptive, copyable metadata
   - **Build verified:** TypeScript ✓, Webpack ✓, all themes ✓
+- [x] P3.1 - Approval Handler (2025-12-16)
+  - Created extension/src/services/ApprovalHandler.ts (3.9 KB, 98 lines)
+  - **P3.1.1:** ApprovalHandler class with AmplifierClient integration
+  - **P3.1.2:** Implemented handleApprovalRequest() with VS Code QuickPick
+    - Shows dialog with approval options from backend
+    - Marks default option with "(default)" description
+    - Handles user selection and submission
+  - **P3.1.3:** Timeout handling with Promise.race() pattern
+    - Races user selection against timeout promise
+    - Uses default decision if user doesn't respond in time
+    - Handles user dismissal (undefined) by falling back to default
+    - Fallback error handling to send default if submission fails
+  - **P3.1.4:** Integration with ChatViewProvider
+    - Imported ApprovalHandler and instantiated in constructor
+    - Wired up onApprovalRequired event handler
+    - Calls approvalHandler.handleApprovalRequest() with sessionId
+    - Shows approval UI in webview (non-blocking) + QuickPick dialog
+  - **Build verified:** TypeScript ✓, Webpack 97 KB bundle (+25 KB), no errors
+- [x] P3.2 - Server Approval Support (2025-12-16)
+  - **P3.2.1:** POST /sessions/{id}/approval endpoint (sessions.py:238-284)
+  - **P3.2.2:** VSCodeApprovalSystem.resolve() (ux_systems.py:95-104)
+  - **P3.2.3:** Approval events wired through SSE (approval:required, approval:granted, approval:denied)
+  - **P3.2.4 (CRITICAL ADDITION):** Created approval_hook.py to intercept tool:pre events
+    - Hook gates write_file, edit_file, bash, git behind approval
+    - Returns HookResult(action="ask_user") to trigger approval flow
+    - Builds user-friendly prompts with file paths, command details
+    - Priority 500 (runs before streaming hooks at 1000)
+  - **P3.2.5:** Registered approval hook in SessionRunner.start()
+    - Imported register_approval_hook
+    - Called after streaming hooks registration
+    - Stored unregister function for cleanup
+  - **Architecture Clarification:** Tools don't call approval_system directly - hooks intercept tool:pre, return action="ask_user", coordinator calls approval_system.request_approval()
+  - **Files:** approval_hook.py (148 lines), hooks/__init__.py, session_runner.py
+  - **Verification:** Python imports ✓, hook registration ✓
+  - **Ready for:** END-TO-END testing - approval flow now fully functional
+- [x] P3.1+ - "Always Allow" Session-Scoped Feature (2025-12-16)
+  - **Scope:** Session-scoped only (not persistent across sessions)
+  - **UI Changes (3 buttons):**
+    - ChatViewProvider.ts: Added "Always Allow" button in HTML (line 538-540)
+    - main.js: Added alwaysAllowBtn reference and handleAlwaysAllow() handler
+    - main.js: Updated keyboard shortcuts (Shift+Enter = Always Allow, Enter = Allow, Escape = Deny)
+    - styles.css: Added .approval-button-always styling with opacity: 0.9
+  - **Backend Changes:**
+    - session_runner.py: Added `always_allow_tools: bool = False` flag (line 94)
+    - session_runner.py: Updated resolve_approval() to detect "AlwaysAllow" decision and set flag
+    - session_runner.py: Stores self reference in session._session_runner for hook access
+    - approval_hook.py: Updated approval_gate_hook() signature to accept coordinator parameter
+    - approval_hook.py: Checks session_runner.always_allow_tools flag and auto-approves if enabled
+    - approval_hook.py: Updated approval_options from ["Allow", "Deny"] to ["AlwaysAllow", "Allow", "Deny"]
+  - **Expected Behavior:**
+    - First request: User sees [Always Allow] [Allow] [Deny]
+    - If "Always Allow" clicked: Request approved, future requests auto-approved
+    - If "Allow" clicked: Only this request approved, future requests still prompt
+    - Session-scoped: Flag resets when session ends
+  - **Build verified:** TypeScript ✓ (npx tsc --noEmit), Webpack ✓ (successful), Python ✓ (py_compile)
+  - **Bug Fixes Applied:**
+    - Hook signature mismatch fixed (closure pattern for 2-arg signature)
+    - Missing logger import added to ux_systems.py
+    - Shift+Enter conflict removed (no longer triggers Always Allow)
+  - **UI Enhancement:** Two-row layout for better readability
+    - Row 1: Icon + prompt + context (full width)
+    - Row 2: Buttons + countdown (clear actions)
+    - Natural text wrapping, no cramping
+    - Accessible, responsive, theme-aware
+  - **Future Enhancement Documented:** Per-command persistent rules (Phase 5) - see Future Enhancements section
 
 ---
 
@@ -634,6 +701,25 @@ _No active tasks yet. Claim tasks from the backlog above._
    - **Recommendation**: 30 minutes default
    - **Action**: Make configurable via VS Code settings
    - **Tune**: Based on actual usage patterns after v1.0
+
+2. **Per-command persistent approval rules** (Future Enhancement - Phase 5):
+   - **Current State**: Session-scoped "Always Allow" implemented (resets on session end)
+   - **Future Feature**: Persistent per-command rules across sessions
+   - **Capabilities:**
+     - Store decisions per tool+pattern: "always allow bash: ls", "always deny bash: rm"
+     - Persist to VS Code workspace/global state
+     - Pattern matching for file paths (e.g., "allow write_file: src/**/*.ts")
+     - UI to manage saved rules (view, edit, delete)
+     - Clear all rules button
+     - Import/export rules for team sharing
+   - **Implementation Notes:**
+     - Use VS Code ExtensionContext.workspaceState for workspace-specific rules
+     - Use ExtensionContext.globalState for user-wide rules
+     - Add "Manage Approval Rules" command
+     - Create ApprovalRulesManager service
+     - Add rule matching logic to approval_hook.py
+   - **Priority**: Post-v1.0 (after core functionality validated)
+   - **Rationale**: Start simple (session-scoped), add complexity only if users request it
 
 ## Resolved Questions
 
