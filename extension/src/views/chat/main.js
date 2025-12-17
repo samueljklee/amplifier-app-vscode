@@ -6,25 +6,8 @@
 // VS Code API (injected by VS Code)
 const vscode = acquireVsCodeApi();
 
-// Configure marked.js for secure Markdown rendering
-if (typeof marked !== 'undefined') {
-    marked.setOptions({
-        breaks: true,          // GitHub-style line breaks
-        gfm: true,             // GitHub Flavored Markdown
-        sanitize: false,       // We'll use DOMPurify-like approach
-        highlight: function(code, lang) {
-            // Use highlight.js if available
-            if (typeof hljs !== 'undefined' && lang && hljs.getLanguage(lang)) {
-                try {
-                    return hljs.highlight(code, { language: lang }).value;
-                } catch (err) {
-                    console.warn('Highlight.js error:', err);
-                }
-            }
-            return code;
-        }
-    });
-}
+// Note: marked.js and highlight.js configuration moved to window.onload
+// to ensure libraries are loaded before configuration
 
 /**
  * Render Markdown to HTML safely
@@ -533,28 +516,8 @@ class ApprovalBar {
     }
 }
 
-// UI Elements
-const elements = {
-    welcomeScreen: document.getElementById('welcome-screen'),
-    chatInterface: document.getElementById('chat-interface'),
-    messages: document.getElementById('messages'),
-    promptInput: document.getElementById('prompt-input'),
-    sendBtn: document.getElementById('send-btn'),
-    exportBtn: document.getElementById('export-btn'),
-    setApiKeyBtn: document.getElementById('set-api-key-btn'),
-    errorDisplay: document.getElementById('error-display'),
-    errorMessage: document.getElementById('error-message'),
-    errorAction: document.getElementById('error-action'),
-    errorDismiss: document.getElementById('error-dismiss'),
-    statusText: document.getElementById('status-text'),
-    statusIndicator: document.getElementById('status-indicator'),
-    statusInfo: document.getElementById('status-info'), // Updated to match new HTML
-    tokenEstimate: document.getElementById('token-estimate'),
-    tokenEstimateCount: document.getElementById('token-estimate-count'),
-    shortcutsPanel: document.getElementById('shortcuts-panel'),
-    shortcutsClose: document.getElementById('shortcuts-close'),
-    welcomeShortcutsBtn: document.getElementById('welcome-shortcuts-btn'),
-};
+// UI Elements - will be populated after DOM loads
+let elements = {};
 
 // State
 let currentSessionId = null;
@@ -570,182 +533,9 @@ let timestampRefreshInterval = null;
 let conversationHistory = [];
 let currentAssistantMessage = null;
 
-// Event Listeners
-elements.sendBtn.addEventListener('click', sendMessage);
-elements.promptInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        sendMessage();
-    }
-});
-elements.promptInput.addEventListener('input', () => {
-    // Enable/disable send button
-    const hasText = elements.promptInput.value.trim().length > 0;
-    elements.sendBtn.disabled = !hasText;
-    
-    // Estimate tokens (rough: ~4 chars per token)
-    const text = elements.promptInput.value;
-    const estimatedTokens = Math.ceil(text.length / 4);
-    if (estimatedTokens > 0) {
-        elements.tokenEstimate.classList.remove('hidden');
-        elements.tokenEstimateCount.textContent = estimatedTokens.toLocaleString();
-    } else {
-        elements.tokenEstimate.classList.add('hidden');
-    }
-    
-    // Auto-resize textarea
-    elements.promptInput.style.height = 'auto';
-    elements.promptInput.style.height = elements.promptInput.scrollHeight + 'px';
-});
-
-elements.setApiKeyBtn.addEventListener('click', () => {
-    vscode.postMessage({ type: 'setApiKey' });
-});
-
-elements.errorDismiss.addEventListener('click', hideError);
-
-// Export conversation button
-elements.exportBtn.addEventListener('click', exportConversation);
-
-// Shortcuts panel handlers
-if (elements.shortcutsClose) {
-    elements.shortcutsClose.addEventListener('click', hideKeyboardShortcuts);
-}
-if (elements.welcomeShortcutsBtn) {
-    elements.welcomeShortcutsBtn.addEventListener('click', showKeyboardShortcuts);
-}
-
-// Platform detection for keyboard shortcuts display
-function detectPlatform() {
-    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-    document.body.classList.toggle('platform-mac', isMac);
-    document.body.classList.toggle('platform-win-linux', !isMac);
-}
-detectPlatform();
-
-// Keyboard shortcuts
-document.addEventListener('keydown', (e) => {
-    // Export conversation (Cmd/Ctrl+E)
-    if ((e.metaKey || e.ctrlKey) && e.key === 'e' && !e.shiftKey) {
-        // Only trigger if not in input field to avoid interfering with editing
-        if (document.activeElement !== elements.promptInput) {
-            e.preventDefault();
-            exportConversation();
-        }
-    }
-    
-    // Close shortcuts panel (Escape)
-    if (e.key === 'Escape' && elements.shortcutsPanel && !elements.shortcutsPanel.classList.contains('hidden')) {
-        e.preventDefault();
-        hideKeyboardShortcuts();
-    }
-});
-
-// Click outside shortcuts panel to close
-if (elements.shortcutsPanel) {
-    elements.shortcutsPanel.addEventListener('click', (e) => {
-        if (e.target === elements.shortcutsPanel) {
-            hideKeyboardShortcuts();
-        }
-    });
-}
-
-// Send ready message when script loads
-console.log('[Webview] Script loaded, sending ready message');
-vscode.postMessage({ type: 'ready' });
-
-// Initialize approval bar
-const approvalBar = new ApprovalBar();
-
-// Initialize search manager
-const searchManager = new SearchManager();
-
-// Global keyboard shortcut for search (Cmd/Ctrl+F)
-document.addEventListener('keydown', (e) => {
-    // Cmd+F (Mac) or Ctrl+F (Windows/Linux)
-    if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
-        e.preventDefault();
-        if (searchManager.isVisible()) {
-            searchManager.searchInput.focus();
-        } else {
-            searchManager.show();
-        }
-    }
-});
-
-// Message handling from extension
-window.addEventListener('message', (event) => {
-    const message = event.data;
-    console.log('[Amplifier Webview] Received message:', message.type, message);
-
-    switch (message.type) {
-        case 'needsApiKey':
-            console.log('[Amplifier Webview] Showing welcome screen - no API key');
-            showWelcomeScreen();
-            break;
-        case 'ready':
-            console.log('[Amplifier Webview] Extension says ready');
-            hideWelcomeScreen();
-            break;
-        case 'showWelcome':
-            console.log('[Amplifier Webview] Showing welcome screen');
-            showWelcomeScreen();
-            break;
-        case 'hideWelcome':
-            console.log('[Amplifier Webview] Hiding welcome screen');
-            hideWelcomeScreen();
-            break;
-        case 'sessionStarted':
-            handleSessionStarted(message);
-            break;
-        case 'sessionStopped':
-            handleSessionStopped();
-            break;
-        case 'contentDelta':
-            handleContentDelta(message);
-            break;
-        case 'thinkingDelta':
-            handleThinkingDelta(message);
-            break;
-        case 'thinkingStart':
-            handleThinkingStart();
-            break;
-        case 'thinkingEnd':
-            handleThinkingEnd();
-            break;
-        case 'toolStart':
-            handleToolStart(message);
-            break;
-        case 'toolEnd':
-            handleToolEnd(message);
-            break;
-        case 'promptComplete':
-            handlePromptComplete(message);
-            break;
-        case 'showApproval':
-            approvalBar.show({
-                prompt: message.prompt,
-                context: message.context,
-                timeout: message.timeout,
-                approvalId: message.approvalId
-            });
-            break;
-        case 'error':
-            showError(message.message || message.error, message.action, 'error');
-            break;
-        case 'connected':
-            updateStatus('Connected', 'ready');
-            break;
-        case 'reconnecting':
-            updateStatus(`Reconnecting (attempt ${message.attempt})...`, 'warning');
-            break;
-        case 'showKeyboardShortcuts':
-            showKeyboardShortcuts();
-            break;
-        default:
-            console.warn('[Amplifier Webview] Unknown message type:', message.type);
-    }
-});
+// Global instances (will be initialized after DOM loads)
+let approvalBar;
+let searchManager;
 
 // Functions
 function sendMessage() {
@@ -813,6 +603,9 @@ function addMessage(role, content, timestamp = null) {
     } else {
         contentDiv.textContent = content;
     }
+    
+    // Make file paths clickable
+    makeFilePathsClickable(contentDiv);
 
     messageDiv.appendChild(headerDiv);
     messageDiv.appendChild(contentDiv);
@@ -934,6 +727,9 @@ function handleSessionStarted(message) {
     // Clear conversation history for new session
     conversationHistory = [];
     currentAssistantMessage = null;
+    
+    // Show the chat interface when session starts
+    hideWelcomeScreen();
     
     // Update collapsed state info
     if (message.workspaceRoot) {
@@ -1613,8 +1409,227 @@ function collectConversationData() {
 function initialize() {
     console.log('[Amplifier Webview] Initializing...');
     
+    // Populate elements object after DOM is loaded
+    elements = {
+        welcomeScreen: document.getElementById('welcome-screen'),
+        chatInterface: document.getElementById('chat-interface'),
+        messages: document.getElementById('messages'),
+        promptInput: document.getElementById('prompt-input'),
+        sendBtn: document.getElementById('send-btn'),
+        exportBtn: document.getElementById('export-btn'),
+        setApiKeyBtn: document.getElementById('set-api-key-btn'),
+        errorDisplay: document.getElementById('error-display'),
+        errorMessage: document.getElementById('error-message'),
+        errorAction: document.getElementById('error-action'),
+        errorDismiss: document.getElementById('error-dismiss'),
+        statusText: document.getElementById('status-text'),
+        statusIndicator: document.getElementById('status-indicator'),
+        statusInfo: document.getElementById('status-info'),
+        tokenEstimate: document.getElementById('token-estimate'),
+        tokenEstimateCount: document.getElementById('token-estimate-count'),
+        shortcutsPanel: document.getElementById('shortcuts-panel'),
+        shortcutsClose: document.getElementById('shortcuts-close'),
+        welcomeShortcutsBtn: document.getElementById('welcome-shortcuts-btn'),
+    };
+    
+    // Configure marked.js for secure Markdown rendering (after libraries load)
+    if (typeof marked !== 'undefined') {
+        marked.setOptions({
+            breaks: true,          // GitHub-style line breaks
+            gfm: true,             // GitHub Flavored Markdown
+            sanitize: false,       // We'll use DOMPurify-like approach
+            highlight: function(code, lang) {
+                // Use highlight.js if available
+                if (typeof hljs !== 'undefined' && lang && hljs.getLanguage(lang)) {
+                    try {
+                        return hljs.highlight(code, { language: lang }).value;
+                    } catch (err) {
+                        console.warn('Highlight.js error:', err);
+                    }
+                }
+                return code;
+            }
+        });
+    }
+    
+    // Set up event listeners
+    elements.sendBtn.addEventListener('click', sendMessage);
+    elements.promptInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+    elements.promptInput.addEventListener('input', () => {
+        // Enable/disable send button
+        const hasText = elements.promptInput.value.trim().length > 0;
+        elements.sendBtn.disabled = !hasText;
+        
+        // Estimate tokens (rough: ~4 chars per token)
+        const text = elements.promptInput.value;
+        const estimatedTokens = Math.ceil(text.length / 4);
+        if (estimatedTokens > 0) {
+            elements.tokenEstimate.classList.remove('hidden');
+            elements.tokenEstimateCount.textContent = estimatedTokens.toLocaleString();
+        } else {
+            elements.tokenEstimate.classList.add('hidden');
+        }
+        
+        // Auto-resize textarea
+        elements.promptInput.style.height = 'auto';
+        elements.promptInput.style.height = elements.promptInput.scrollHeight + 'px';
+    });
+    
+    elements.setApiKeyBtn.addEventListener('click', () => {
+        vscode.postMessage({ type: 'setApiKey' });
+    });
+    
+    elements.errorDismiss.addEventListener('click', hideError);
+    elements.exportBtn.addEventListener('click', exportConversation);
+    
+    // Shortcuts panel handlers
+    if (elements.shortcutsClose) {
+        elements.shortcutsClose.addEventListener('click', hideKeyboardShortcuts);
+    }
+    if (elements.welcomeShortcutsBtn) {
+        elements.welcomeShortcutsBtn.addEventListener('click', showKeyboardShortcuts);
+    }
+    if (elements.shortcutsPanel) {
+        elements.shortcutsPanel.addEventListener('click', (e) => {
+            if (e.target === elements.shortcutsPanel) {
+                hideKeyboardShortcuts();
+            }
+        });
+    }
+    
+    // Platform detection for keyboard shortcuts display
+    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+    document.body.classList.toggle('platform-mac', isMac);
+    document.body.classList.toggle('platform-win-linux', !isMac);
+    
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+        // Export conversation (Cmd/Ctrl+E)
+        if ((e.metaKey || e.ctrlKey) && e.key === 'e' && !e.shiftKey) {
+            // Only trigger if not in input field to avoid interfering with editing
+            if (document.activeElement !== elements.promptInput) {
+                e.preventDefault();
+                exportConversation();
+            }
+        }
+        
+        // Close shortcuts panel (Escape)
+        if (e.key === 'Escape' && elements.shortcutsPanel && !elements.shortcutsPanel.classList.contains('hidden')) {
+            e.preventDefault();
+            hideKeyboardShortcuts();
+        }
+    });
+    
+    // Initialize approval bar
+    approvalBar = new ApprovalBar();
+    
+    // Initialize search manager
+    searchManager = new SearchManager();
+    
+    // Initialize file path opening
+    initFilePathOpening();
+    
+    // Global keyboard shortcut for search (Cmd/Ctrl+F)
+    document.addEventListener('keydown', (e) => {
+        // Cmd+F (Mac) or Ctrl+F (Windows/Linux)
+        if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+            e.preventDefault();
+            if (searchManager.isVisible()) {
+                searchManager.searchInput.focus();
+            } else {
+                searchManager.show();
+            }
+        }
+    });
+    
     // Initial send button state
     elements.sendBtn.disabled = true;
+    
+    // Show welcome screen by default BEFORE sending ready (extension will hide it if API key exists)
+    showWelcomeScreen();
+    
+    // Message handling from extension - MUST BE REGISTERED BEFORE SENDING 'ready'
+    window.addEventListener('message', (event) => {
+        const message = event.data;
+        console.log('[Amplifier Webview] Received message:', message.type, message);
+
+        switch (message.type) {
+            case 'needsApiKey':
+                console.log('[Amplifier Webview] Showing welcome screen - no API key');
+                showWelcomeScreen();
+                break;
+            case 'ready':
+                console.log('[Amplifier Webview] Extension says ready');
+                hideWelcomeScreen();
+                break;
+            case 'showWelcome':
+                console.log('[Amplifier Webview] Showing welcome screen');
+                showWelcomeScreen();
+                break;
+            case 'hideWelcome':
+                console.log('[Amplifier Webview] Hiding welcome screen');
+                hideWelcomeScreen();
+                break;
+            case 'sessionStarted':
+                handleSessionStarted(message);
+                break;
+            case 'sessionStopped':
+                handleSessionStopped();
+                break;
+            case 'contentDelta':
+                handleContentDelta(message);
+                break;
+            case 'thinkingDelta':
+                handleThinkingDelta(message);
+                break;
+            case 'thinkingStart':
+                handleThinkingStart();
+                break;
+            case 'thinkingEnd':
+                handleThinkingEnd();
+                break;
+            case 'toolStart':
+                handleToolStart(message);
+                break;
+            case 'toolEnd':
+                handleToolEnd(message);
+                break;
+            case 'promptComplete':
+                handlePromptComplete(message);
+                break;
+            case 'showApproval':
+                approvalBar.show({
+                    prompt: message.prompt,
+                    context: message.context,
+                    timeout: message.timeout,
+                    approvalId: message.approvalId
+                });
+                break;
+            case 'error':
+                showError(message.message || message.error, message.action, 'error');
+                break;
+            case 'connected':
+                updateStatus('Connected', 'ready');
+                break;
+            case 'reconnecting':
+                updateStatus(`Reconnecting (attempt ${message.attempt})...`, 'warning');
+                break;
+            case 'showKeyboardShortcuts':
+                showKeyboardShortcuts();
+                break;
+            default:
+                console.warn('[Amplifier Webview] Unknown message type:', message.type);
+        }
+    });
+    
+    // Now that the message listener is registered, send the ready message
+    console.log('[Amplifier Webview] Script loaded, sending ready message');
+    vscode.postMessage({ type: 'ready' });
     
     // Initialize status bar toggle
     initStatusBar();
@@ -1890,6 +1905,212 @@ function initCodeCopy() {
         observer.observe(messagesContainer, {
             childList: true,
             subtree: true
+        });
+    }
+}
+
+// ===== FILE PATH DETECTION AND OPENING =====
+
+/**
+ * Detect and make file paths clickable with Cmd/Ctrl+click
+ */
+function makeFilePathsClickable(container) {
+    if (!container) return;
+    
+    // Regex to match file paths (relative and absolute)
+    // Matches: ./path/file.ext, ../path/file.ext, /abs/path/file.ext, path/to/file.ext
+    // Also matches Windows paths: C:\path\file.ext
+    const filePathRegex = /(?:^|\s|`)((?:\.\.?\/|\/|[A-Z]:\\|[a-z_][\w-]*\/)[^\s`<>"|*?:]+\.[a-z0-9]{1,8})(?=\s|`|$|[.,;!?])/gi;
+    
+    // Process text nodes in the container
+    const walker = document.createTreeWalker(
+        container,
+        NodeFilter.SHOW_TEXT,
+        {
+            acceptNode: function(node) {
+                // Skip if parent is already a file-path or in a code block
+                const parent = node.parentElement;
+                if (!parent) return NodeFilter.FILTER_REJECT;
+                
+                const tagName = parent.tagName.toLowerCase();
+                // Skip code blocks, but allow inline code
+                if (tagName === 'pre' || tagName === 'script' || tagName === 'style') {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                if (parent.classList.contains('file-path')) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                
+                return NodeFilter.FILTER_ACCEPT;
+            }
+        }
+    );
+    
+    const nodesToReplace = [];
+    let currentNode;
+    
+    // Collect text nodes that contain file paths
+    while (currentNode = walker.nextNode()) {
+        const text = currentNode.textContent;
+        if (filePathRegex.test(text)) {
+            nodesToReplace.push(currentNode);
+        }
+        filePathRegex.lastIndex = 0; // Reset regex
+    }
+    
+    // Replace text nodes with spans containing clickable file paths
+    nodesToReplace.forEach(textNode => {
+        const text = textNode.textContent;
+        const parent = textNode.parentElement;
+        if (!parent) return;
+        
+        const fragment = document.createDocumentFragment();
+        let lastIndex = 0;
+        let match;
+        
+        filePathRegex.lastIndex = 0;
+        
+        while ((match = filePathRegex.exec(text)) !== null) {
+            const filePath = match[1];
+            const startIndex = match.index + (match[0].length - match[1].length);
+            
+            // Add text before the match
+            if (startIndex > lastIndex) {
+                fragment.appendChild(document.createTextNode(text.substring(lastIndex, startIndex)));
+            }
+            
+            // Create clickable file path span
+            const span = document.createElement('span');
+            span.className = 'file-path';
+            span.textContent = filePath;
+            span.dataset.path = filePath;
+            span.setAttribute('role', 'link');
+            span.setAttribute('tabindex', '0');
+            span.setAttribute('title', 'Cmd/Ctrl+Click to open');
+            fragment.appendChild(span);
+            
+            lastIndex = startIndex + filePath.length;
+        }
+        
+        // Add remaining text
+        if (lastIndex < text.length) {
+            fragment.appendChild(document.createTextNode(text.substring(lastIndex)));
+        }
+        
+        // Replace the text node with the fragment
+        if (fragment.childNodes.length > 0) {
+            parent.replaceChild(fragment, textNode);
+        }
+    });
+}
+
+/**
+ * Handle click on file paths with Cmd/Ctrl modifier
+ */
+function handleFilePathClick(event) {
+    // Check if Cmd (Mac) or Ctrl (Windows/Linux) is pressed
+    const isModifierPressed = event.metaKey || event.ctrlKey;
+    
+    if (!isModifierPressed) return;
+    
+    const target = event.target;
+    if (!target.classList.contains('file-path')) return;
+    
+    event.preventDefault();
+    event.stopPropagation();
+    
+    const filePath = target.dataset.path;
+    if (!filePath) return;
+    
+    console.log('[Webview] Opening file:', filePath);
+    
+    // Send message to extension to open the file
+    vscode.postMessage({
+        type: 'openFile',
+        path: filePath,
+        workspaceRoot: currentWorkspaceRoot
+    });
+}
+
+/**
+ * Handle keyboard navigation for file paths (Enter/Space)
+ */
+function handleFilePathKeydown(event) {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    
+    const target = event.target;
+    if (!target.classList.contains('file-path')) return;
+    
+    event.preventDefault();
+    
+    const filePath = target.dataset.path;
+    if (!filePath) return;
+    
+    console.log('[Webview] Opening file (keyboard):', filePath);
+    
+    vscode.postMessage({
+        type: 'openFile',
+        path: filePath,
+        workspaceRoot: currentWorkspaceRoot
+    });
+}
+
+/**
+ * Show visual feedback when Cmd/Ctrl is pressed over file paths
+ */
+let isModifierKeyDown = false;
+
+function handleModifierKeyDown(event) {
+    if (event.metaKey || event.ctrlKey) {
+        if (!isModifierKeyDown) {
+            isModifierKeyDown = true;
+            document.body.classList.add('modifier-key-active');
+        }
+    }
+}
+
+function handleModifierKeyUp(event) {
+    if (!event.metaKey && !event.ctrlKey) {
+        isModifierKeyDown = false;
+        document.body.classList.remove('modifier-key-active');
+    }
+}
+
+/**
+ * Initialize file path detection and click handling
+ */
+function initFilePathOpening() {
+    // Add click handler for file paths
+    document.addEventListener('click', handleFilePathClick);
+    document.addEventListener('keydown', handleFilePathKeydown);
+    
+    // Track modifier key state for visual feedback
+    document.addEventListener('keydown', handleModifierKeyDown);
+    document.addEventListener('keyup', handleModifierKeyUp);
+    window.addEventListener('blur', () => {
+        isModifierKeyDown = false;
+        document.body.classList.remove('modifier-key-active');
+    });
+    
+    // Watch for new messages being added
+    const messagesContainer = document.getElementById('messages');
+    if (messagesContainer) {
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                mutation.addedNodes.forEach((node) => {
+                    if (node.nodeType === Node.ELEMENT_NODE) {
+                        // Process new message content
+                        if (node.classList && node.classList.contains('message')) {
+                            makeFilePathsClickable(node);
+                        }
+                    }
+                });
+            });
+        });
+        
+        observer.observe(messagesContainer, {
+            childList: true,
+            subtree: false // Only watch direct children of messages
         });
     }
 }

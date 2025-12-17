@@ -1746,3 +1746,302 @@ a:focus-visible {
     background: var(--vscode-editor-background);
     font-weight: 600;
 }
+
+/* ===== KEYBOARD SHORTCUTS PANEL ===== */
+
+.shortcuts-panel {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(2px);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 200ms ease;
+}
+
+.shortcuts-panel.hidden {
+    display: none;
+}
+
+.shortcuts-content {
+    background-color: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 8px;
+    width: 90%;
+    max-width: 700px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    animation: slideUp 250ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.shortcuts-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    position: sticky;
+    top: 0;
+    background-color: var(--vscode-editor-background);
+    z-index: 1;
+}
+
+.shortcuts-header h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--vscode-foreground);
+}
+
+.shortcuts-body {
+    padding: 20px;
+}
+
+.shortcuts-section {
+    margin-bottom: 32px;
+}
+
+.shortcuts-section:last-child {
+    margin-bottom: 0;
+}
+
+.shortcuts-section h3 {
+    margin: 0 0 16px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--vscode-foreground);
+    opacity: 0.8;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.shortcut-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.shortcut-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    background-color: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 4px;
+    transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.shortcut-item:hover {
+    background-color: var(--vscode-list-hoverBackground);
+    border-color: var(--vscode-focusBorder);
+}
+
+.shortcut-description {
+    flex: 1;
+    color: var(--vscode-foreground);
+    font-size: 13px;
+}
+
+.shortcut-keys {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    flex-shrink: 0;
+    margin-left: 16px;
+    font-size: 12px;
+}
+
+.shortcut-keys kbd {
+    display: inline-block;
+    padding: 4px 8px;
+    background-color: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 4px;
+    font-family: var(--vscode-font-family);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--vscode-foreground);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    white-space: nowrap;
+}
+
+/* Platform-specific keyboard shortcuts display */
+body.platform-mac .win-linux-only,
+body.platform-win-linux .mac-only {
+    display: none;
+}
+
+.shortcuts-footer {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--vscode-panel-border);
+}
+
+.shortcuts-hint {
+    margin: 0;
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground);
+    line-height: 1.6;
+}
+
+.shortcuts-hint strong {
+    color: var(--vscode-foreground);
+}
+
+.icon-button {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--vscode-foreground);
+    opacity: 0.7;
+    transition: opacity 150ms ease, background-color 150ms ease;
+    border-radius: 4px;
+}
+
+.icon-button:hover {
+    opacity: 1;
+    background-color: var(--vscode-toolbar-hoverBackground);
+}
+
+.icon-button:focus-visible {
+    outline: 2px solid var(--vscode-focusBorder);
+    outline-offset: 2px;
+}
+
+/* Welcome screen shortcuts link */
+.shortcuts-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    padding: 8px 12px;
+    background: none;
+    border: 1px solid var(--vscode-button-border, transparent);
+    border-radius: 4px;
+    color: var(--vscode-textLink-foreground);
+    text-decoration: none;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background-color 150ms ease, color 150ms ease;
+}
+
+.shortcuts-link:hover {
+    background-color: var(--vscode-list-hoverBackground);
+    color: var(--vscode-textLink-activeForeground);
+}
+
+.shortcuts-link:focus-visible {
+    outline: 2px solid var(--vscode-focusBorder);
+    outline-offset: 2px;
+}
+
+.shortcuts-link svg {
+    flex-shrink: 0;
+}
+
+/* Animations for shortcuts panel */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateY(20px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+/* Reduced motion support for shortcuts panel */
+@media (prefers-reduced-motion: reduce) {
+    .shortcuts-panel,
+    .shortcuts-content {
+        animation: none;
+    }
+}
+
+/* ===== FILE PATH OPENING ===== */
+
+/* File path styling - looks like a subtle link */
+.file-path {
+    color: var(--vscode-textLink-foreground);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    cursor: default;
+    padding: 0 2px;
+    border-radius: 2px;
+    transition: all 0.15s ease;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 0.95em;
+}
+
+/* Show underline on hover */
+.file-path:hover {
+    background-color: var(--vscode-textLink-activeForeground, rgba(14, 99, 156, 0.1));
+    border-bottom-color: var(--vscode-textLink-foreground);
+}
+
+/* When modifier key (Cmd/Ctrl) is pressed, show pointer cursor */
+body.modifier-key-active .file-path {
+    cursor: pointer;
+    background-color: var(--vscode-textLink-activeForeground, rgba(14, 99, 156, 0.15));
+    border-bottom-color: var(--vscode-textLink-foreground);
+}
+
+body.modifier-key-active .file-path:hover {
+    background-color: var(--vscode-textLink-activeForeground, rgba(14, 99, 156, 0.25));
+    text-decoration: underline;
+}
+
+/* Focus state for keyboard navigation */
+.file-path:focus {
+    outline: 2px solid var(--vscode-focusBorder);
+    outline-offset: 2px;
+}
+
+.file-path:focus:not(:focus-visible) {
+    outline: none;
+}
+
+/* Tooltip hint */
+.file-path::after {
+    content: attr(title);
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    background: var(--vscode-editorHoverWidget-background);
+    color: var(--vscode-editorHoverWidget-foreground);
+    border: 1px solid var(--vscode-editorHoverWidget-border);
+    padding: 4px 8px;
+    border-radius: 3px;
+    font-size: 12px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    z-index: 1000;
+}
+
+body.modifier-key-active .file-path:hover::after {
+    opacity: 1;
+}
+}

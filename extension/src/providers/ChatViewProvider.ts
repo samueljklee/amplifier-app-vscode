@@ -155,6 +155,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 );
                 break;
             
+            case 'openFile':
+                await this._openFile(message.path, message.workspaceRoot);
+                break;
+            
             // Note: exportConversation feature is part of P5.6.9 (not implemented yet)
             // case 'exportConversation':
             //     await this._exportConversation(message.data);
@@ -1056,6 +1060,65 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             } else {
                 vscode.window.showErrorMessage(`Failed to load conversation: ${error.message}`);
             }
+        }
+    }
+
+    /**
+     * Open a file in VS Code editor
+     */
+    private async _openFile(filePath: string, workspaceRoot?: string): Promise<void> {
+        try {
+            console.log('[ChatViewProvider] Opening file:', filePath, 'from workspace:', workspaceRoot);
+            
+            let fileUri: vscode.Uri;
+            
+            // If path is absolute, use it directly
+            if (path.isAbsolute(filePath)) {
+                fileUri = vscode.Uri.file(filePath);
+            } 
+            // If workspace root is available, resolve relative to workspace
+            else if (workspaceRoot) {
+                const absolutePath = path.join(workspaceRoot, filePath);
+                fileUri = vscode.Uri.file(absolutePath);
+            }
+            // Fall back to resolving against first workspace folder
+            else if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+                const workspaceFolder = vscode.workspace.workspaceFolders[0];
+                fileUri = vscode.Uri.joinPath(workspaceFolder.uri, filePath);
+            }
+            // No workspace, try to resolve as absolute
+            else {
+                fileUri = vscode.Uri.file(filePath);
+            }
+            
+            // Check if file exists
+            try {
+                await vscode.workspace.fs.stat(fileUri);
+            } catch (error) {
+                // File doesn't exist, show error
+                vscode.window.showWarningMessage(
+                    `File not found: ${filePath}`,
+                    'Copy Path'
+                ).then(selection => {
+                    if (selection === 'Copy Path') {
+                        vscode.env.clipboard.writeText(filePath);
+                    }
+                });
+                return;
+            }
+            
+            // Open the file
+            const document = await vscode.workspace.openTextDocument(fileUri);
+            await vscode.window.showTextDocument(document, {
+                preview: false, // Open in non-preview mode so it stays open
+                preserveFocus: false // Focus the editor
+            });
+            
+            console.log('[ChatViewProvider] Successfully opened file:', fileUri.fsPath);
+            
+        } catch (error: any) {
+            console.error('[ChatViewProvider] Failed to open file:', error);
+            vscode.window.showErrorMessage(`Failed to open file: ${error.message}`);
         }
     }
 
