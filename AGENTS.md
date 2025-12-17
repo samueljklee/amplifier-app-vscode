@@ -329,10 +329,10 @@ For detailed architecture, see `docs/ARCHITECTURE.md`. Quick summary:
 | P5.6.7 | Add keyboard shortcuts configuration panel | P2.6.* | modular-builder | ☐ |
 | P5.6.8 | Implement message reactions/feedback (👍👎) | P2.5.* | modular-builder | ☐ |
 | P5.6.9 | Add conversation history sidebar | P2.6.* | modular-builder | ☐ |
-| P5.6.10 | Implement relative timestamps with hover (e.g., "2 mins ago") | P2.5.* | modular-builder | ☐ |
+| P5.6.10 | Implement relative timestamps with hover (e.g., "2 mins ago") | P2.5.* | modular-builder | ☑ |
 | P5.6.11 | Add syntax highlighting for inline code | P2.5.5 | modular-builder | ☐ |
 | P5.6.12 | Implement message threading/branching | P2.6.* | modular-builder | ☐ |
-| P5.6.13 | Implement collapsible thinking/tool messages (expand/collapse) | P2.5.* | modular-builder | ☐ |
+| P5.6.13 | Implement collapsible thinking/tool messages (expand/collapse) | P2.5.* | modular-builder | ☑ |
 
 ---
 
@@ -695,6 +695,31 @@ _No active tasks yet. Claim tasks from the backlog above._
   - **Build Verification:** TypeScript ✓, Webpack ✓, Python ✓, All imports ✓
   - **Manual Testing Guide:** Step-by-step instructions for human verification included
   - **Quality:** Production-ready approval flow with timeout handling and clean UI
+
+- [x] P5.6.10 - Relative Timestamps with Hover (2025-12-17)
+  - **Implemented:** Relative time formatting for all message timestamps
+    - Created `formatRelativeTime()` function with natural language output (main.js:347-397)
+    - Time ranges: "just now" (< 1 min), "N mins ago", "N hours ago", "yesterday", "N days ago", date formats
+    - Created `formatFullTimestamp()` for hover tooltips (main.js:341-352)
+    - Format: "Dec 17, 2025 06:15:32" with full date/time
+  - **Auto-refresh:** Periodic timestamp updates every 60 seconds (main.js:399-417, 913-945)
+    - `updateAllTimestamps()` refreshes all visible timestamps
+    - `startTimestampRefresh()` initializes 60-second interval
+    - `stopTimestampRefresh()` cleanup function
+  - **UI Integration:** Updated all timestamp creation points
+    - `addMessage()` - user/assistant messages (main.js:469-477)
+    - `handleThinkingStart()` - thinking blocks (main.js:580-585)
+    - `handleToolStart()` - tool execution messages (main.js:667-672)
+    - All timestamps store `data-timestamp` attribute for refresh
+  - **Hover Enhancement:** CSS improvements for better UX (styles.css:421-429)
+    - `cursor: help` on timestamps to indicate hover functionality
+    - Opacity transition from 0.6 → 1.0 on hover (200ms ease)
+    - Title attribute shows full timestamp tooltip
+  - **Files Modified:**
+    - extension/src/views/chat/main.js (+9.7 KB, 1154 lines total)
+    - extension/src/views/chat/styles.css (+48 bytes, hover styling)
+  - **Build verified:** TypeScript ✓, Webpack 112 KB (from 70.9 KB), zero errors
+  - **Quality:** Natural language timestamps, accessible hover tooltips, auto-refreshing
 
 ---
 

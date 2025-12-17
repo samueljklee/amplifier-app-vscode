@@ -540,6 +540,7 @@ const elements = {
     messages: document.getElementById('messages'),
     promptInput: document.getElementById('prompt-input'),
     sendBtn: document.getElementById('send-btn'),
+    exportBtn: document.getElementById('export-btn'),
     setApiKeyBtn: document.getElementById('set-api-key-btn'),
     errorDisplay: document.getElementById('error-display'),
     errorMessage: document.getElementById('error-message'),
@@ -550,15 +551,24 @@ const elements = {
     statusInfo: document.getElementById('status-info'), // Updated to match new HTML
     tokenEstimate: document.getElementById('token-estimate'),
     tokenEstimateCount: document.getElementById('token-estimate-count'),
+    shortcutsPanel: document.getElementById('shortcuts-panel'),
+    shortcutsClose: document.getElementById('shortcuts-close'),
+    welcomeShortcutsBtn: document.getElementById('welcome-shortcuts-btn'),
 };
 
 // State
 let currentSessionId = null;
+let currentProfile = null;
+let currentWorkspaceRoot = null;
 let isStreaming = false;
 let currentMessageElement = null;
 let totalTokens = { input: 0, output: 0 };
 let errorDismissTimer = null;
 let timestampRefreshInterval = null;
+
+// Message history for export
+let conversationHistory = [];
+let currentAssistantMessage = null;
 
 // Event Listeners
 elements.sendBtn.addEventListener('click', sendMessage);
@@ -593,6 +603,52 @@ elements.setApiKeyBtn.addEventListener('click', () => {
 });
 
 elements.errorDismiss.addEventListener('click', hideError);
+
+// Export conversation button
+elements.exportBtn.addEventListener('click', exportConversation);
+
+// Shortcuts panel handlers
+if (elements.shortcutsClose) {
+    elements.shortcutsClose.addEventListener('click', hideKeyboardShortcuts);
+}
+if (elements.welcomeShortcutsBtn) {
+    elements.welcomeShortcutsBtn.addEventListener('click', showKeyboardShortcuts);
+}
+
+// Platform detection for keyboard shortcuts display
+function detectPlatform() {
+    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+    document.body.classList.toggle('platform-mac', isMac);
+    document.body.classList.toggle('platform-win-linux', !isMac);
+}
+detectPlatform();
+
+// Keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+    // Export conversation (Cmd/Ctrl+E)
+    if ((e.metaKey || e.ctrlKey) && e.key === 'e' && !e.shiftKey) {
+        // Only trigger if not in input field to avoid interfering with editing
+        if (document.activeElement !== elements.promptInput) {
+            e.preventDefault();
+            exportConversation();
+        }
+    }
+    
+    // Close shortcuts panel (Escape)
+    if (e.key === 'Escape' && elements.shortcutsPanel && !elements.shortcutsPanel.classList.contains('hidden')) {
+        e.preventDefault();
+        hideKeyboardShortcuts();
+    }
+});
+
+// Click outside shortcuts panel to close
+if (elements.shortcutsPanel) {
+    elements.shortcutsPanel.addEventListener('click', (e) => {
+        if (e.target === elements.shortcutsPanel) {
+            hideKeyboardShortcuts();
+        }
+    });
+}
 
 // Send ready message when script loads
 console.log('[Webview] Script loaded, sending ready message');
@@ -683,6 +739,9 @@ window.addEventListener('message', (event) => {
         case 'reconnecting':
             updateStatus(`Reconnecting (attempt ${message.attempt})...`, 'warning');
             break;
+        case 'showKeyboardShortcuts':
+            showKeyboardShortcuts();
+            break;
         default:
             console.warn('[Amplifier Webview] Unknown message type:', message.type);
     }
@@ -695,6 +754,13 @@ function sendMessage() {
 
     // Add user message to UI
     addMessage('user', text);
+    
+    // Add to conversation history
+    conversationHistory.push({
+        role: 'user',
+        content: text,
+        timestamp: new Date().toISOString()
+    });
 
     // Send to extension
     vscode.postMessage({
@@ -754,6 +820,11 @@ function addMessage(role, content, timestamp = null) {
 
     // Scroll to bottom
     elements.messages.scrollTop = elements.messages.scrollHeight;
+
+    // Notify search manager of new content
+    if (searchManager) {
+        searchManager.onMessagesChanged();
+    }
 
     return contentDiv;
 }
@@ -857,6 +928,12 @@ function updateAllTimestamps() {
 
 function handleSessionStarted(message) {
     currentSessionId = message.sessionId;
+    currentProfile = message.profile;
+    currentWorkspaceRoot = message.workspaceRoot;
+    
+    // Clear conversation history for new session
+    conversationHistory = [];
+    currentAssistantMessage = null;
     
     // Update collapsed state info
     if (message.workspaceRoot) {
@@ -911,6 +988,11 @@ function handleContentDelta(message) {
         currentMessageElement.dataset.rawContent += data.delta;
         currentMessageElement.textContent += data.delta;
         elements.messages.scrollTop = elements.messages.scrollHeight;
+        
+        // Notify search manager on content update
+        if (searchManager) {
+            searchManager.onMessagesChanged();
+        }
     }
 }
 
@@ -1035,6 +1117,11 @@ function handleThinkingDelta(message) {
     
     // Scroll to show thinking
     elements.messages.scrollTop = elements.messages.scrollHeight;
+    
+    // Notify search manager
+    if (searchManager) {
+        searchManager.onMessagesChanged();
+    }
 }
 
 function handleThinkingEnd() {
@@ -1195,6 +1282,11 @@ function handleToolEnd(message) {
     }
     
     elements.messages.scrollTop = elements.messages.scrollHeight;
+    
+    // Notify search manager
+    if (searchManager) {
+        searchManager.onMessagesChanged();
+    }
 }
 
 function handlePromptComplete(data) {
@@ -1320,6 +1412,30 @@ function hideError() {
     }, 200);
 }
 
+/**
+ * Show keyboard shortcuts panel
+ */
+function showKeyboardShortcuts() {
+    if (elements.shortcutsPanel) {
+        elements.shortcutsPanel.classList.remove('hidden');
+        // Focus close button for accessibility
+        setTimeout(() => {
+            if (elements.shortcutsClose) {
+                elements.shortcutsClose.focus();
+            }
+        }, 100);
+    }
+}
+
+/**
+ * Hide keyboard shortcuts panel
+ */
+function hideKeyboardShortcuts() {
+    if (elements.shortcutsPanel) {
+        elements.shortcutsPanel.classList.add('hidden');
+    }
+}
+
 function updateStatus(text, level = 'idle') {
     // Update both collapsed and expanded status indicators
     const statusText = document.getElementById('status-text');
@@ -1358,6 +1474,139 @@ function createIcon(pathData) {
     svg.appendChild(path);
     
     return svg;
+}
+
+/**
+ * Make an element collapsible
+ * @param {HTMLElement} container - The container element
+ * @param {HTMLElement} header - The header element (clickable)
+ * @param {HTMLElement} content - The content element to show/hide
+ */
+function makeCollapsible(container, header, content) {
+    const toggleCollapse = () => {
+        const isCollapsed = container.dataset.collapsed === 'true';
+        
+        // Toggle state
+        container.dataset.collapsed = !isCollapsed;
+        content.hidden = isCollapsed;
+        header.setAttribute('aria-expanded', isCollapsed);
+        
+        // Update aria-label
+        const label = header.getAttribute('aria-label');
+        if (label) {
+            header.setAttribute('aria-label', label.replace(
+                isCollapsed ? 'Expand' : 'Collapse',
+                isCollapsed ? 'Collapse' : 'Expand'
+            ));
+        }
+    };
+    
+    // Click handler
+    header.addEventListener('click', (e) => {
+        // Don't toggle if clicking on nested interactive elements
+        if (e.target.closest('button, a, details')) {
+            return;
+        }
+        toggleCollapse();
+    });
+    
+    // Keyboard handler (Enter/Space)
+    header.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            toggleCollapse();
+        }
+    });
+}
+
+/**
+ * Export conversation in requested format
+ */
+function exportConversation() {
+    console.log('[Webview] Export requested');
+    
+    // Collect conversation data from DOM
+    const messages = collectConversationData();
+    
+    if (messages.length === 0) {
+        showError('No messages to export', null, 'warning');
+        return;
+    }
+    
+    // Send export request to extension
+    vscode.postMessage({
+        type: 'exportConversation',
+        data: {
+            sessionId: currentSessionId,
+            profile: currentProfile,
+            workspaceRoot: currentWorkspaceRoot,
+            messages: messages,
+            totalTokens: totalTokens
+        }
+    });
+}
+
+/**
+ * Collect conversation data from DOM
+ * Returns array of message objects
+ */
+function collectConversationData() {
+    const messageElements = document.querySelectorAll('#messages > .message:not(.thinking-message):not(.tool-message)');
+    const messages = [];
+    
+    messageElements.forEach((msgEl) => {
+        const role = msgEl.classList.contains('user') ? 'user' : 'assistant';
+        const timestampEl = msgEl.querySelector('.message-timestamp');
+        const contentEl = msgEl.querySelector('.message-content');
+        
+        if (!contentEl) return;
+        
+        const message = {
+            role: role,
+            content: contentEl.textContent || contentEl.innerText || '',
+            timestamp: timestampEl ? timestampEl.dataset.timestamp : Date.now().toString()
+        };
+        
+        // For assistant messages, collect thinking and tool info
+        if (role === 'assistant') {
+            // Check for thinking blocks (previous siblings)
+            const thinkingBlocks = [];
+            let prevEl = msgEl.previousElementSibling;
+            while (prevEl && prevEl.classList.contains('thinking-message')) {
+                const thinkingContent = prevEl.querySelector('.thinking-content');
+                if (thinkingContent) {
+                    thinkingBlocks.unshift(thinkingContent.textContent || '');
+                }
+                prevEl = prevEl.previousElementSibling;
+            }
+            if (thinkingBlocks.length > 0) {
+                message.thinking = thinkingBlocks.join('\n\n');
+            }
+            
+            // Check for tool blocks
+            const tools = [];
+            prevEl = msgEl.previousElementSibling;
+            while (prevEl && prevEl.classList.contains('tool-message')) {
+                const toolName = prevEl.dataset.toolName || 'unknown';
+                const toolInput = prevEl.querySelector('.tool-input')?.textContent || '';
+                const toolOutput = prevEl.querySelector('.tool-output')?.textContent || '';
+                
+                tools.unshift({
+                    name: toolName,
+                    input: toolInput,
+                    output: toolOutput
+                });
+                prevEl = prevEl.previousElementSibling;
+            }
+            if (tools.length > 0) {
+                message.tools = tools;
+            }
+        }
+        
+        messages.push(message);
+    });
+    
+    return messages;
 }
 
 // Initialize

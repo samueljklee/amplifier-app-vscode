@@ -87,6 +87,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     /**
+     * Show keyboard shortcuts panel
+     */
+    public showKeyboardShortcuts(): void {
+        console.log('[ChatViewProvider] Showing keyboard shortcuts');
+        if (!this._view) {
+            vscode.window.showWarningMessage('Please open the Amplifier chat panel first.');
+            return;
+        }
+        
+        // Focus the chat view and send message to show shortcuts
+        vscode.commands.executeCommand('amplifier.chatView.focus');
+        this._postMessage({ type: 'showKeyboardShortcuts' });
+    }
+
+    /**
      * Check for API key and initialize UI state
      */
     private async _checkApiKeyAndInitialize(): Promise<void> {
@@ -139,6 +154,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                     message.decision
                 );
                 break;
+            
+            // Note: exportConversation feature is part of P5.6.9 (not implemented yet)
+            // case 'exportConversation':
+            //     await this._exportConversation(message.data);
+            //     break;
             
             default:
                 console.warn(`Unknown message type: ${message.type}`);
@@ -473,6 +493,95 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     /**
+     * Export conversation to file
+     */
+    private async _exportConversation(data: any): Promise<void> {
+        try {
+            const format = await vscode.window.showQuickPick(
+                [
+                    { label: 'JSON', description: 'Machine-readable format with full metadata', value: 'json' },
+                    { label: 'Markdown', description: 'Human-readable format', value: 'md' }
+                ],
+                { placeHolder: 'Select export format', title: 'Export Conversation' }
+            );
+            if (!format) return;
+
+            const now = new Date();
+            const timestamp = now.toISOString().replace(/:/g, '-').replace(/\..+/, '').replace('T', '-');
+            const defaultFilename = `amplifier-conversation-${timestamp}.${format.value}`;
+
+            const uri = await vscode.window.showSaveDialog({
+                defaultUri: vscode.Uri.file(defaultFilename),
+                filters: format.value === 'json' ? { 'JSON': ['json'] } : { 'Markdown': ['md', 'markdown'] }
+            });
+            if (!uri) return;
+
+            const content = format.value === 'json' ? this._formatAsJSON(data) : this._formatAsMarkdown(data);
+            await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf8'));
+            vscode.window.showInformationMessage(`Conversation exported to ${uri.fsPath}`);
+        } catch (error: any) {
+            console.error('[ChatViewProvider] Export failed:', error);
+            vscode.window.showErrorMessage(`Failed to export conversation: ${error.message}`);
+        }
+    }
+
+    private _formatAsJSON(data: any): string {
+        return JSON.stringify({
+            session_id: data.sessionId || 'unknown',
+            exported_at: new Date().toISOString(),
+            profile: data.profile || 'unknown',
+            workspace_root: data.workspaceRoot || null,
+            messages: data.messages || [],
+            metadata: { total_tokens: data.totalTokens || { input: 0, output: 0 } }
+        }, null, 2);
+    }
+
+    private _formatAsMarkdown(data: any): string {
+        const lines: string[] = [];
+        lines.push('# Amplifier Conversation Export\n');
+        const exportDate = new Date();
+        lines.push(`**Exported:** ${exportDate.toLocaleString()}`);
+        lines.push(`**Profile:** ${data.profile || 'unknown'}`);
+        if (data.workspaceRoot) lines.push(`**Workspace:** ${data.workspaceRoot}`);
+        if (data.sessionId) lines.push(`**Session ID:** ${data.sessionId}`);
+        lines.push('\n---\n');
+
+        const messages = data.messages || [];
+        messages.forEach((msg: any) => {
+            const timestamp = msg.timestamp ? new Date(parseInt(msg.timestamp)) : new Date();
+            lines.push(`## ${msg.role === 'user' ? 'User' : 'Assistant'} (${timestamp.toLocaleTimeString()})\n`);
+            lines.push(msg.content || '');
+            lines.push('');
+            if (msg.thinking && msg.thinking.trim()) {
+                lines.push('### Thinking\n');
+                lines.push(msg.thinking);
+                lines.push('');
+            }
+            if (msg.tools && msg.tools.length > 0) {
+                lines.push('### Tools Used\n');
+                msg.tools.forEach((tool: any) => {
+                    lines.push(`- **${tool.name}**`);
+                    if (tool.input) lines.push(`  - Input: \`${tool.input}\``);
+                    if (tool.output) {
+                        const preview = tool.output.substring(0, 100);
+                        lines.push(`  - Output: ${preview}${tool.output.length > 100 ? '...' : ''}`);
+                    }
+                });
+                lines.push('');
+            }
+            lines.push('---\n');
+        });
+
+        const tokens = data.totalTokens || { input: 0, output: 0 };
+        lines.push('## Metadata\n');
+        lines.push(`- **Total Messages:** ${messages.length}`);
+        lines.push(`- **Total Tokens:** ${(tokens.input + tokens.output).toLocaleString()} (${tokens.input.toLocaleString()} input, ${tokens.output.toLocaleString()} output)`);
+        lines.push('\n---\n');
+        lines.push('*Exported from [Amplifier VS Code Extension](https://github.com/microsoft/amplifier)*');
+        return lines.join('\n');
+    }
+
+    /**
      * Post message to webview
      */
     private _postMessage(message: any): void {
@@ -544,6 +653,126 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
             <div class="welcome-footer">
                 <a href="https://github.com/microsoft/amplifier" class="secondary-link">Learn more about Amplifier</a>
+                <button id="welcome-shortcuts-btn" class="secondary-link shortcuts-link" aria-label="View keyboard shortcuts">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                        <path d="M13 3H3a1 1 0 00-1 1v8a1 1 0 001 1h10a1 1 0 001-1V4a1 1 0 00-1-1zM3 2a2 2 0 00-2 2v8a2 2 0 002 2h10a2 2 0 002-2V4a2 2 0 00-2-2H3z"/>
+                        <path d="M4.5 6.5h1v1h-1v-1zm2 0h1v1h-1v-1zm2 0h1v1h-1v-1zm2 0h1v1h-1v-1zm-6 2h1v1h-1v-1zm2 0h5v1h-5v-1z"/>
+                    </svg>
+                    Keyboard Shortcuts
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Keyboard Shortcuts Panel (overlay) -->
+    <div id="shortcuts-panel" class="shortcuts-panel hidden" role="dialog" aria-labelledby="shortcuts-title" aria-modal="true">
+        <div class="shortcuts-content">
+            <div class="shortcuts-header">
+                <h2 id="shortcuts-title">Keyboard Shortcuts</h2>
+                <button id="shortcuts-close" class="icon-button" aria-label="Close shortcuts panel">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                        <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
+                    </svg>
+                </button>
+            </div>
+            
+            <div class="shortcuts-body">
+                <section class="shortcuts-section">
+                    <h3>General</h3>
+                    <div class="shortcut-list">
+                        <div class="shortcut-item">
+                            <span class="shortcut-description">Open Amplifier chat</span>
+                            <span class="shortcut-keys">
+                                <kbd class="mac-only">Cmd</kbd><kbd class="win-linux-only">Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd>
+                            </span>
+                        </div>
+                        <div class="shortcut-item">
+                            <span class="shortcut-description">Show keyboard shortcuts</span>
+                            <span class="shortcut-keys">
+                                <kbd class="mac-only">Cmd</kbd><kbd class="win-linux-only">Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> → "Amplifier: Show Keyboard Shortcuts"
+                            </span>
+                        </div>
+                        <div class="shortcut-item">
+                            <span class="shortcut-description">Set API key</span>
+                            <span class="shortcut-keys">
+                                <kbd class="mac-only">Cmd</kbd><kbd class="win-linux-only">Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> → "Amplifier: Set API Key"
+                            </span>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="shortcuts-section">
+                    <h3>Chat Interface</h3>
+                    <div class="shortcut-list">
+                        <div class="shortcut-item">
+                            <span class="shortcut-description">Send message</span>
+                            <span class="shortcut-keys">
+                                <kbd class="mac-only">Cmd</kbd><kbd class="win-linux-only">Ctrl</kbd>+<kbd>Enter</kbd>
+                            </span>
+                        </div>
+                        <div class="shortcut-item">
+                            <span class="shortcut-description">New line in message</span>
+                            <span class="shortcut-keys">
+                                <kbd>Shift</kbd>+<kbd>Enter</kbd>
+                            </span>
+                        </div>
+                        <div class="shortcut-item">
+                            <span class="shortcut-description">Clear input</span>
+                            <span class="shortcut-keys">
+                                <kbd>Esc</kbd>
+                            </span>
+                        </div>
+                        <div class="shortcut-item">
+                            <span class="shortcut-description">Focus message input</span>
+                            <span class="shortcut-keys">
+                                <kbd>Tab</kbd> (when in chat)
+                            </span>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="shortcuts-section">
+                    <h3>Approvals</h3>
+                    <div class="shortcut-list">
+                        <div class="shortcut-item">
+                            <span class="shortcut-description">Allow action</span>
+                            <span class="shortcut-keys">
+                                <kbd>Enter</kbd>
+                            </span>
+                        </div>
+                        <div class="shortcut-item">
+                            <span class="shortcut-description">Deny action</span>
+                            <span class="shortcut-keys">
+                                <kbd>Esc</kbd>
+                            </span>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="shortcuts-section">
+                    <h3>Code Actions</h3>
+                    <div class="shortcut-list">
+                        <div class="shortcut-item">
+                            <span class="shortcut-description">Explain selection</span>
+                            <span class="shortcut-keys">
+                                <kbd class="mac-only">Cmd</kbd><kbd class="win-linux-only">Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> → "Amplifier: Explain Selection"
+                            </span>
+                        </div>
+                        <div class="shortcut-item">
+                            <span class="shortcut-description">Improve selection</span>
+                            <span class="shortcut-keys">
+                                <kbd class="mac-only">Cmd</kbd><kbd class="win-linux-only">Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> → "Amplifier: Improve Selection"
+                            </span>
+                        </div>
+                    </div>
+                </section>
+
+                <div class="shortcuts-footer">
+                    <p class="shortcuts-hint">
+                        <strong>Tip:</strong> You can customize keyboard shortcuts in VS Code settings 
+                        (<kbd class="mac-only">Cmd</kbd><kbd class="win-linux-only">Ctrl</kbd>+<kbd>K</kbd> <kbd class="mac-only">Cmd</kbd><kbd class="win-linux-only">Ctrl</kbd>+<kbd>S</kbd>)
+                    </p>
+                </div>
             </div>
         </div>
     </div>
@@ -755,6 +984,79 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     <script nonce="${nonce}" src="${scriptPath}"></script>
 </body>
 </html>`;
+    }
+
+    /**
+     * Load a previous conversation by session ID
+     */
+    public async loadConversation(sessionId: string): Promise<void> {
+        console.log('[ChatViewProvider] Loading conversation:', sessionId);
+
+        try {
+            // Check if session still exists on server
+            const status = await this._client.getSessionStatus(sessionId);
+            
+            // Stop current session if active
+            if (this._sessionId && this._sessionId !== sessionId) {
+                console.log('[ChatViewProvider] Stopping current session before loading:', this._sessionId);
+                await this._stopSession();
+            }
+
+            // Set new session ID
+            this._sessionId = sessionId;
+            this._firstMessageInSession = null; // Clear first message tracker
+
+            // Subscribe to events for this session
+            this._subscribeToEvents();
+
+            // Update conversation history
+            if (this.conversationHistoryProvider) {
+                this.conversationHistoryProvider.setCurrentSession(sessionId);
+                this.conversationHistoryProvider.updateConversation(sessionId, {
+                    status: status.status,
+                    last_activity: status.last_activity
+                });
+            }
+
+            // Notify webview
+            this._postMessage({
+                type: 'sessionLoaded',
+                sessionId: sessionId,
+                profile: status.profile,
+                messageCount: status.message_count,
+                tokenUsage: status.token_usage
+            });
+
+            // Focus chat view
+            if (this._view) {
+                this._view.show?.(true);
+            }
+
+            vscode.window.showInformationMessage(`Loaded conversation: ${sessionId.substring(0, 8)}...`);
+
+        } catch (error: any) {
+            console.error('[ChatViewProvider] Failed to load conversation:', error);
+            
+            // Session no longer exists on server
+            if (error.message?.includes('404') || error.message?.includes('SESSION_NOT_FOUND')) {
+                vscode.window.showWarningMessage(
+                    'This conversation no longer exists on the server (it may have been cleaned up). Starting a new session instead.',
+                    'Start New Session'
+                ).then(selection => {
+                    if (selection === 'Start New Session') {
+                        this._sessionId = null;
+                        this._checkApiKeyAndInitialize();
+                    }
+                });
+
+                // Remove from history
+                if (this.conversationHistoryProvider) {
+                    this.conversationHistoryProvider.removeConversation(sessionId);
+                }
+            } else {
+                vscode.window.showErrorMessage(`Failed to load conversation: ${error.message}`);
+            }
+        }
     }
 
     /**

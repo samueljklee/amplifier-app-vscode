@@ -119,8 +119,22 @@
                 rows="3"
             ></textarea>
             <div class="input-controls">
-                <div id="token-display" class="token-counter hidden">
-                    Tokens: <span id="token-count">0</span>
+                <div class="input-controls-left">
+                    <button 
+                        id="export-btn" 
+                        class="icon-button" 
+                        title="Export conversation (Cmd/Ctrl+E)"
+                        aria-label="Export conversation"
+                    >
+                        <svg viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M8.5 1a.5.5 0 00-1 0v7.793L5.354 6.646a.5.5 0 10-.708.708l3 3a.5.5 0 00.708 0l3-3a.5.5 0 00-.708-.708L8.5 8.793V1z"/>
+                            <path d="M3 11.5a.5.5 0 01.5-.5h9a.5.5 0 010 1h-9a.5.5 0 01-.5-.5z"/>
+                            <path d="M2.5 14a.5.5 0 000 1h11a.5.5 0 000-1h-11z"/>
+                        </svg>
+                    </button>
+                    <div id="token-display" class="token-counter hidden">
+                        Tokens: <span id="token-count">0</span>
+                    </div>
                 </div>
                 <button id="send-btn" class="send-button">Send</button>
             </div>
