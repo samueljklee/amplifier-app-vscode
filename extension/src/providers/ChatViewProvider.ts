@@ -32,6 +32,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private _credentialsManager: CredentialsManager;
     private _contextGatherer: ContextGatherer;
     private _approvalHandler: ApprovalHandler;
+    private _firstMessageInSession: string | null = null;
+    
+    // Reference to conversation history provider (set by extension.ts)
+    public conversationHistoryProvider?: any;
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
@@ -187,6 +191,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 workspaceRoot: context.workspace_root
             });
 
+            // Add to conversation history (without first message yet - will be added when user sends message)
+            if (this.conversationHistoryProvider) {
+                this.conversationHistoryProvider.setCurrentSession(this._sessionId);
+            }
+
         } catch (error: any) {
             console.error('[Amplifier ChatViewProvider] Failed to start session:', error);
             this._postMessage({
@@ -223,6 +232,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
      * Send a message/prompt to the session
      */
     private async _sendMessage(text: string): Promise<void> {
+        const isNewSession = !this._sessionId;
+        
         if (!this._sessionId) {
             await this._startSession();
             if (!this._sessionId) {
@@ -231,6 +242,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
 
         try {
+            // Track first message for conversation history
+            if (isNewSession && !this._firstMessageInSession) {
+                this._firstMessageInSession = text;
+            }
+
             // 🆕 Gather fresh context on every message
             console.log('[ChatViewProvider] Gathering fresh context for message...');
             const freshContext = await this._gatherContext();
@@ -242,6 +258,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
             // User message is already added by webview, no need to duplicate
             console.log('[ChatViewProvider] Prompt submitted:', text.substring(0, 50));
+
+            // Add to conversation history after first successful message
+            if (isNewSession && this.conversationHistoryProvider) {
+                const config = vscode.workspace.getConfiguration('amplifier');
+                const profile = config.get<string>('profile', 'vscode-simple');
+                this.conversationHistoryProvider.addConversation(this._sessionId, profile, this._firstMessageInSession);
+            } else if (this.conversationHistoryProvider) {
+                // Update message count
+                this.conversationHistoryProvider.updateConversation(this._sessionId, {
+                    message_count: (this.conversationHistoryProvider.getConversation(this._sessionId)?.message_count || 0) + 1
+                });
+            }
 
         } catch (error: any) {
             console.error('[Amplifier ChatViewProvider] Failed to send message:', error);
@@ -476,8 +504,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} https:; font-src ${webview.cspSource}; connect-src http://127.0.0.1:8765;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline' https://cdn.jsdelivr.net; script-src 'nonce-${nonce}' https://cdn.jsdelivr.net; img-src ${webview.cspSource} https:; font-src ${webview.cspSource}; connect-src http://127.0.0.1:8765;">
     <link href="${stylesPath}" rel="stylesheet">
+    <!-- Highlight.js theme (GitHub Dark/Light - adapts to VS Code theme) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css" media="(prefers-color-scheme: dark)" nonce="${nonce}">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github.min.css" media="(prefers-color-scheme: light)" nonce="${nonce}">
     <title>Amplifier Chat</title>
 </head>
 <body>
@@ -710,6 +741,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     </div> <!-- End status bar -->
 </div> <!-- End chat-interface -->
 
+    <!-- Load marked.js for Markdown rendering -->
+    <script nonce="${nonce}" src="https://cdn.jsdelivr.net/npm/marked@11.0.0/marked.min.js"></script>
+    <!-- Load highlight.js for syntax highlighting -->
+    <script nonce="${nonce}" src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/highlight.min.js"></script>
+    <script nonce="${nonce}" src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/languages/python.min.js"></script>
+    <script nonce="${nonce}" src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/languages/typescript.min.js"></script>
+    <script nonce="${nonce}" src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/languages/javascript.min.js"></script>
+    <script nonce="${nonce}" src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/languages/bash.min.js"></script>
+    <script nonce="${nonce}" src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/languages/json.min.js"></script>
+    <script nonce="${nonce}" src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/languages/yaml.min.js"></script>
+    <!-- Load main.js after libraries are loaded -->
     <script nonce="${nonce}" src="${scriptPath}"></script>
 </body>
 </html>`;

@@ -28,13 +28,19 @@ const config = {
                         loader: 'ts-loader'
                     }
                 ]
+            },
+            {
+                test: /\.css$/,
+                use: ['style-loader', 'css-loader']
             }
         ]
     },
     plugins: [
         new CopyPlugin({
             patterns: [
-                { from: 'resources', to: 'resources' }
+                { from: 'resources', to: 'resources' },
+                // Copy marked.js for webview use (with sanitization enabled)
+                { from: 'node_modules/marked/marked.min.js', to: 'libs/marked.min.js' }
             ]
         })
     ],

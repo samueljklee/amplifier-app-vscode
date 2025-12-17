@@ -6,6 +6,399 @@
 // VS Code API (injected by VS Code)
 const vscode = acquireVsCodeApi();
 
+// Configure marked.js for secure Markdown rendering
+if (typeof marked !== 'undefined') {
+    marked.setOptions({
+        breaks: true,          // GitHub-style line breaks
+        gfm: true,             // GitHub Flavored Markdown
+        sanitize: false,       // We'll use DOMPurify-like approach
+        highlight: function(code, lang) {
+            // Use highlight.js if available
+            if (typeof hljs !== 'undefined' && lang && hljs.getLanguage(lang)) {
+                try {
+                    return hljs.highlight(code, { language: lang }).value;
+                } catch (err) {
+                    console.warn('Highlight.js error:', err);
+                }
+            }
+            return code;
+        }
+    });
+}
+
+/**
+ * Render Markdown to HTML safely
+ * @param {string} markdown - Markdown text to render
+ * @returns {string} - Safe HTML string
+ */
+function renderMarkdown(markdown) {
+    if (typeof marked === 'undefined') {
+        // Fallback if marked.js didn't load
+        return escapeHtml(markdown);
+    }
+    
+    try {
+        // Parse markdown to HTML
+        let html = marked.parse(markdown);
+        
+        // Basic XSS protection: remove script tags and event handlers
+        html = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+        html = html.replace(/on\w+\s*=\s*["'][^"']*["']/gi, '');
+        html = html.replace(/javascript:/gi, '');
+        
+        return html;
+    } catch (err) {
+        console.error('Markdown parsing error:', err);
+        return escapeHtml(markdown);
+    }
+}
+
+/**
+ * Escape HTML for safe display
+ * @param {string} text - Text to escape
+ * @returns {string} - Escaped text
+ */
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Markdown rendering with syntax highlighting
+// Note: marked and hljs are loaded via CDN in the HTML
+const marked = window.marked;
+const hljs = window.hljs;
+
+// Configure marked to use highlight.js
+if (marked && hljs) {
+    marked.setOptions({
+        highlight: function(code, lang) {
+            if (lang && hljs.getLanguage(lang)) {
+                try {
+                    return hljs.highlight(code, { language: lang }).value;
+                } catch (err) {
+                    console.warn('Highlight.js error:', err);
+                }
+            }
+            // Auto-detect if no language specified
+            try {
+                return hljs.highlightAuto(code, ['python', 'typescript', 'javascript', 'bash', 'json', 'yaml', 'markdown']).value;
+            } catch (err) {
+                console.warn('Highlight.js auto-detect error:', err);
+                return code; // Fallback to plain text
+            }
+        },
+        breaks: true, // Convert \n to <br>
+        gfm: true, // GitHub Flavored Markdown
+    });
+}
+
+// ===== SEARCH MANAGER CLASS =====
+class SearchManager {
+    constructor() {
+        this.searchBar = document.getElementById('search-bar');
+        this.searchInput = document.getElementById('search-input');
+        this.searchClear = document.getElementById('search-clear');
+        this.searchPrev = document.getElementById('search-prev');
+        this.searchNext = document.getElementById('search-next');
+        this.searchClose = document.getElementById('search-close');
+        this.searchCount = document.getElementById('search-count-text');
+        this.caseToggle = document.getElementById('search-case-toggle');
+        
+        this.matches = [];
+        this.currentMatchIndex = -1;
+        this.caseSensitive = false;
+        this.debounceTimer = null;
+        
+        this.init();
+    }
+
+    init() {
+        // Input handling with debounce
+        this.searchInput.addEventListener('input', () => {
+            clearTimeout(this.debounceTimer);
+            this.debounceTimer = setTimeout(() => this.performSearch(), 300);
+        });
+        
+        // Clear button
+        this.searchClear.addEventListener('click', () => {
+            this.searchInput.value = '';
+            this.clearSearch();
+            this.searchInput.focus();
+        });
+        
+        // Navigation buttons
+        this.searchPrev.addEventListener('click', () => this.navigateToPrevious());
+        this.searchNext.addEventListener('click', () => this.navigateToNext());
+        
+        // Close button
+        this.searchClose.addEventListener('click', () => this.hide());
+        
+        // Case sensitivity toggle
+        this.caseToggle.addEventListener('click', () => {
+            this.caseSensitive = !this.caseSensitive;
+            this.caseToggle.setAttribute('aria-pressed', this.caseSensitive.toString());
+            this.performSearch();
+        });
+        
+        // Keyboard shortcuts within search bar
+        this.searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                if (e.shiftKey) {
+                    this.navigateToPrevious();
+                } else {
+                    this.navigateToNext();
+                }
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                this.hide();
+            }
+        });
+    }
+
+    show() {
+        this.searchBar.classList.remove('hidden');
+        this.searchInput.focus();
+        this.searchInput.select();
+    }
+
+    hide() {
+        this.searchBar.classList.add('hidden');
+        this.clearSearch();
+        
+        // Return focus to chat input
+        const promptInput = document.getElementById('prompt-input');
+        if (promptInput) {
+            promptInput.focus();
+        }
+    }
+
+    isVisible() {
+        return !this.searchBar.classList.contains('hidden');
+    }
+
+    performSearch() {
+        const query = this.searchInput.value.trim();
+        
+        // Clear previous search
+        this.clearHighlights();
+        this.matches = [];
+        this.currentMatchIndex = -1;
+        
+        if (!query) {
+            this.updateUI();
+            return;
+        }
+        
+        // Get all message content elements
+        const messages = document.querySelectorAll('.message-content');
+        
+        messages.forEach((messageEl, messageIndex) => {
+            // Skip if this is a thinking or tool message (optional - could include them)
+            if (messageEl.closest('.thinking-message, .tool-message')) {
+                return;
+            }
+            
+            const originalText = this.getTextContent(messageEl);
+            if (!originalText) return;
+            
+            // Find matches
+            const regex = new RegExp(
+                this.escapeRegex(query),
+                this.caseSensitive ? 'g' : 'gi'
+            );
+            
+            let match;
+            const matches = [];
+            while ((match = regex.exec(originalText)) !== null) {
+                matches.push({
+                    start: match.index,
+                    end: match.index + match[0].length,
+                    text: match[0]
+                });
+            }
+            
+            if (matches.length > 0) {
+                // Store matches for navigation
+                matches.forEach(m => {
+                    this.matches.push({
+                        element: messageEl,
+                        match: m
+                    });
+                });
+                
+                // Highlight matches in this message
+                this.highlightMatches(messageEl, originalText, matches);
+            }
+        });
+        
+        // Navigate to first match if any
+        if (this.matches.length > 0) {
+            this.currentMatchIndex = 0;
+            this.highlightCurrentMatch();
+        }
+        
+        this.updateUI();
+    }
+
+    getTextContent(element) {
+        // Get text content, preserving structure but removing highlight spans
+        const clone = element.cloneNode(true);
+        const highlights = clone.querySelectorAll('.search-match, .search-match-current');
+        highlights.forEach(h => {
+            const text = document.createTextNode(h.textContent);
+            h.parentNode.replaceChild(text, h);
+        });
+        return clone.textContent || '';
+    }
+
+    highlightMatches(element, originalText, matches) {
+        // Build new HTML with highlighted matches
+        let lastIndex = 0;
+        const fragments = [];
+        
+        matches.forEach(match => {
+            // Add text before match
+            if (match.start > lastIndex) {
+                fragments.push(document.createTextNode(
+                    originalText.substring(lastIndex, match.start)
+                ));
+            }
+            
+            // Add highlighted match
+            const span = document.createElement('span');
+            span.className = 'search-match';
+            span.textContent = originalText.substring(match.start, match.end);
+            fragments.push(span);
+            
+            lastIndex = match.end;
+        });
+        
+        // Add remaining text
+        if (lastIndex < originalText.length) {
+            fragments.push(document.createTextNode(
+                originalText.substring(lastIndex)
+            ));
+        }
+        
+        // Replace element content
+        element.textContent = '';
+        fragments.forEach(f => element.appendChild(f));
+    }
+
+    highlightCurrentMatch() {
+        if (this.currentMatchIndex < 0 || this.currentMatchIndex >= this.matches.length) {
+            return;
+        }
+        
+        // Remove previous current highlight
+        document.querySelectorAll('.search-match-current').forEach(el => {
+            el.classList.remove('search-match-current');
+            el.classList.add('search-match');
+        });
+        
+        // Highlight current match
+        const currentMatch = this.matches[this.currentMatchIndex];
+        const highlightSpans = currentMatch.element.querySelectorAll('.search-match');
+        
+        // Find the correct span for this match
+        // Count spans until we find the right one for our match index
+        let spanIndex = 0;
+        for (let i = 0; i < this.currentMatchIndex; i++) {
+            if (this.matches[i].element === currentMatch.element) {
+                spanIndex++;
+            }
+        }
+        
+        if (highlightSpans[spanIndex]) {
+            highlightSpans[spanIndex].classList.remove('search-match');
+            highlightSpans[spanIndex].classList.add('search-match-current');
+            
+            // Scroll into view
+            highlightSpans[spanIndex].scrollIntoView({
+                behavior: 'smooth',
+                block: 'center',
+                inline: 'nearest'
+            });
+        }
+    }
+
+    navigateToNext() {
+        if (this.matches.length === 0) return;
+        
+        this.currentMatchIndex = (this.currentMatchIndex + 1) % this.matches.length;
+        this.highlightCurrentMatch();
+        this.updateUI();
+    }
+
+    navigateToPrevious() {
+        if (this.matches.length === 0) return;
+        
+        this.currentMatchIndex = this.currentMatchIndex <= 0 
+            ? this.matches.length - 1 
+            : this.currentMatchIndex - 1;
+        this.highlightCurrentMatch();
+        this.updateUI();
+    }
+
+    clearHighlights() {
+        document.querySelectorAll('.search-match, .search-match-current').forEach(span => {
+            const text = document.createTextNode(span.textContent);
+            span.parentNode.replaceChild(text, span);
+        });
+    }
+
+    clearSearch() {
+        this.clearHighlights();
+        this.matches = [];
+        this.currentMatchIndex = -1;
+        this.updateUI();
+    }
+
+    updateUI() {
+        const hasMatches = this.matches.length > 0;
+        
+        // Update count
+        if (hasMatches) {
+            this.searchCount.textContent = `${this.currentMatchIndex + 1} of ${this.matches.length}`;
+        } else if (this.searchInput.value.trim()) {
+            this.searchCount.textContent = 'No results';
+        } else {
+            this.searchCount.textContent = '';
+        }
+        
+        // Update navigation button states
+        this.searchPrev.disabled = !hasMatches;
+        this.searchNext.disabled = !hasMatches;
+        
+        // Announce to screen readers
+        if (hasMatches) {
+            this.searchCount.setAttribute('aria-live', 'polite');
+        }
+    }
+
+    escapeRegex(string) {
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    // Called when new messages are added - re-run search if active
+    onMessagesChanged() {
+        if (this.searchInput.value.trim() && this.isVisible()) {
+            // Store current query and re-search
+            const currentQuery = this.searchInput.value;
+            const currentIndex = this.currentMatchIndex;
+            this.performSearch();
+            
+            // Try to maintain position
+            if (currentIndex >= 0 && currentIndex < this.matches.length) {
+                this.currentMatchIndex = currentIndex;
+                this.highlightCurrentMatch();
+            }
+        }
+    }
+}
+
 // ===== APPROVAL BAR CLASS =====
 class ApprovalBar {
     constructor() {
@@ -165,6 +558,7 @@ let isStreaming = false;
 let currentMessageElement = null;
 let totalTokens = { input: 0, output: 0 };
 let errorDismissTimer = null;
+let timestampRefreshInterval = null;
 
 // Event Listeners
 elements.sendBtn.addEventListener('click', sendMessage);
@@ -206,6 +600,22 @@ vscode.postMessage({ type: 'ready' });
 
 // Initialize approval bar
 const approvalBar = new ApprovalBar();
+
+// Initialize search manager
+const searchManager = new SearchManager();
+
+// Global keyboard shortcut for search (Cmd/Ctrl+F)
+document.addEventListener('keydown', (e) => {
+    // Cmd+F (Mac) or Ctrl+F (Windows/Linux)
+    if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        e.preventDefault();
+        if (searchManager.isVisible()) {
+            searchManager.searchInput.focus();
+        } else {
+            searchManager.show();
+        }
+    }
+});
 
 // Message handling from extension
 window.addEventListener('message', (event) => {
@@ -310,16 +720,33 @@ function addMessage(role, content, timestamp = null) {
     roleDiv.className = 'message-role';
     roleDiv.textContent = role === 'user' ? 'You' : 'Amplifier';
 
+    // Create timestamp with relative time and hover tooltip
+    const now = new Date();
     const timestampDiv = document.createElement('span');
     timestampDiv.className = 'message-timestamp';
-    timestampDiv.textContent = timestamp || formatTime(new Date());
+    timestampDiv.textContent = formatRelativeTime(now);
+    timestampDiv.title = formatFullTimestamp(now); // Hover tooltip
+    timestampDiv.dataset.timestamp = now.getTime().toString(); // Store for refresh
 
     headerDiv.appendChild(roleDiv);
     headerDiv.appendChild(timestampDiv);
 
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
-    contentDiv.textContent = content;
+    
+    // Render markdown for assistant messages, plain text for user messages
+    if (role === 'assistant' && marked) {
+        try {
+            contentDiv.innerHTML = marked.parse(content);
+            // Apply syntax highlighting to any code blocks
+            highlightCodeBlocks(contentDiv);
+        } catch (err) {
+            console.warn('Markdown parsing error:', err);
+            contentDiv.textContent = content; // Fallback to plain text
+        }
+    } else {
+        contentDiv.textContent = content;
+    }
 
     messageDiv.appendChild(headerDiv);
     messageDiv.appendChild(contentDiv);
@@ -331,10 +758,101 @@ function addMessage(role, content, timestamp = null) {
     return contentDiv;
 }
 
+/**
+ * Format timestamp for display (HH:MM) - DEPRECATED, use formatRelativeTime
+ */
 function formatTime(date) {
     const hours = date.getHours().toString().padStart(2, '0');
     const minutes = date.getMinutes().toString().padStart(2, '0');
     return `${hours}:${minutes}`;
+}
+
+/**
+ * Format date as full timestamp for hover tooltip
+ * Example: "Dec 17, 2025 06:15:32"
+ */
+function formatFullTimestamp(date) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const month = months[date.getMonth()];
+    const day = date.getDate();
+    const year = date.getFullYear();
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    const seconds = date.getSeconds().toString().padStart(2, '0');
+    
+    return `${month} ${day}, ${year} ${hours}:${minutes}:${seconds}`;
+}
+
+/**
+ * Format date as relative time (e.g., "2 mins ago", "3 hours ago")
+ * Returns human-readable relative time string
+ */
+function formatRelativeTime(date) {
+    const now = Date.now();
+    const timestamp = date.getTime();
+    const diffMs = now - timestamp;
+    const diffSeconds = Math.floor(diffMs / 1000);
+    const diffMinutes = Math.floor(diffSeconds / 60);
+    const diffHours = Math.floor(diffMinutes / 60);
+    const diffDays = Math.floor(diffHours / 24);
+    
+    // Future dates (clock skew) - show "just now"
+    if (diffSeconds < 0) {
+        return 'just now';
+    }
+    
+    // Less than 1 minute
+    if (diffSeconds < 60) {
+        return 'just now';
+    }
+    
+    // Less than 1 hour
+    if (diffMinutes < 60) {
+        return diffMinutes === 1 ? '1 min ago' : `${diffMinutes} mins ago`;
+    }
+    
+    // Less than 24 hours
+    if (diffHours < 24) {
+        return diffHours === 1 ? '1 hour ago' : `${diffHours} hours ago`;
+    }
+    
+    // Less than 2 days - show "yesterday"
+    if (diffDays === 1) {
+        return 'yesterday';
+    }
+    
+    // Less than 7 days
+    if (diffDays < 7) {
+        return `${diffDays} days ago`;
+    }
+    
+    // More than 7 days - show date
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const month = months[date.getMonth()];
+    const day = date.getDate();
+    
+    // Same year - omit year
+    if (date.getFullYear() === new Date().getFullYear()) {
+        return `${month} ${day}`;
+    }
+    
+    // Different year - include year
+    return `${month} ${day}, ${date.getFullYear()}`;
+}
+
+/**
+ * Update all timestamps to show relative time
+ * Called periodically to refresh timestamps
+ */
+function updateAllTimestamps() {
+    const timestamps = document.querySelectorAll('.message-timestamp[data-timestamp]');
+    timestamps.forEach(timestampEl => {
+        const timestamp = parseInt(timestampEl.dataset.timestamp, 10);
+        if (!isNaN(timestamp)) {
+            const date = new Date(timestamp);
+            timestampEl.textContent = formatRelativeTime(date);
+        }
+    });
 }
 
 function handleSessionStarted(message) {
@@ -385,6 +903,12 @@ function handleContentDelta(message) {
 
     // Append delta
     if (currentMessageElement && data.delta) {
+        // For streaming, append as plain text first
+        // We'll render markdown when complete
+        if (!currentMessageElement.dataset.rawContent) {
+            currentMessageElement.dataset.rawContent = '';
+        }
+        currentMessageElement.dataset.rawContent += data.delta;
         currentMessageElement.textContent += data.delta;
         elements.messages.scrollTop = elements.messages.scrollHeight;
     }
@@ -393,13 +917,26 @@ function handleContentDelta(message) {
 function handleThinkingStart() {
     console.log('[Webview] Thinking start');
     
-    // Create thinking message block
+    // Create thinking message block with collapsible structure
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message assistant thinking-message';
     messageDiv.id = 'current-thinking-block';
+    messageDiv.dataset.collapsed = 'true';
     
+    // Collapsible header (clickable)
     const headerDiv = document.createElement('div');
-    headerDiv.className = 'message-header';
+    headerDiv.className = 'message-header thinking-header';
+    headerDiv.setAttribute('role', 'button');
+    headerDiv.setAttribute('aria-expanded', 'false');
+    headerDiv.setAttribute('tabindex', '0');
+    headerDiv.setAttribute('aria-label', 'Expand thinking process');
+    
+    // Chevron icon
+    const chevronSpan = document.createElement('span');
+    chevronSpan.className = 'collapse-icon';
+    chevronSpan.setAttribute('aria-hidden', 'true');
+    chevronSpan.innerHTML = `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4"/></svg>`;
+    headerDiv.appendChild(chevronSpan);
     
     const roleDiv = document.createElement('div');
     roleDiv.className = 'message-role';
@@ -409,20 +946,28 @@ function handleThinkingStart() {
     roleDiv.appendChild(icon);
     roleDiv.appendChild(document.createTextNode('Thinking'));
     
+    const now = new Date();
     const timestampDiv = document.createElement('span');
     timestampDiv.className = 'message-timestamp';
-    timestampDiv.textContent = formatTime(new Date());
+    timestampDiv.textContent = formatRelativeTime(now);
+    timestampDiv.title = formatFullTimestamp(now); // Hover tooltip
+    timestampDiv.dataset.timestamp = now.getTime().toString(); // Store for refresh
     
     headerDiv.appendChild(roleDiv);
     headerDiv.appendChild(timestampDiv);
     
+    // Collapsible content (hidden by default)
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content thinking-content';
     contentDiv.id = 'thinking-content-text';
+    contentDiv.hidden = true;
     
     messageDiv.appendChild(headerDiv);
     messageDiv.appendChild(contentDiv);
     elements.messages.appendChild(messageDiv);
+    
+    // Make collapsible
+    makeCollapsible(messageDiv, headerDiv, contentDiv);
     
     elements.messages.scrollTop = elements.messages.scrollHeight;
 }
@@ -437,18 +982,53 @@ function handleThinkingDelta(message) {
     
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message assistant thinking-message';
+    messageDiv.dataset.collapsed = 'true';
+    
+    // Collapsible header (clickable)
+    const headerDiv = document.createElement('div');
+    headerDiv.className = 'message-header thinking-header';
+    headerDiv.setAttribute('role', 'button');
+    headerDiv.setAttribute('aria-expanded', 'false');
+    headerDiv.setAttribute('tabindex', '0');
+    headerDiv.setAttribute('aria-label', 'Expand thinking process');
+    
+    // Chevron icon
+    const chevronSpan = document.createElement('span');
+    chevronSpan.className = 'collapse-icon';
+    chevronSpan.setAttribute('aria-hidden', 'true');
+    chevronSpan.innerHTML = `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4"/></svg>`;
+    headerDiv.appendChild(chevronSpan);
     
     const roleDiv = document.createElement('div');
     roleDiv.className = 'message-role';
-    roleDiv.textContent = '💭 Thinking';
     
+    // Add SVG icon
+    const icon = createIcon('M8 1a7 7 0 110 14A7 7 0 018 1zm0 2a5 5 0 100 10A5 5 0 008 3z');
+    roleDiv.appendChild(icon);
+    roleDiv.appendChild(document.createTextNode('Thinking'));
+    
+    const now = new Date();
+    const timestampDiv = document.createElement('span');
+    timestampDiv.className = 'message-timestamp';
+    timestampDiv.textContent = formatRelativeTime(now);
+    timestampDiv.title = formatFullTimestamp(now);
+    timestampDiv.dataset.timestamp = now.getTime().toString();
+    
+    headerDiv.appendChild(roleDiv);
+    headerDiv.appendChild(timestampDiv);
+    
+    // Collapsible content (hidden by default)
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content thinking-content';
     contentDiv.textContent = message.data.delta;
+    contentDiv.hidden = true;
     
-    messageDiv.appendChild(roleDiv);
+    messageDiv.appendChild(headerDiv);
     messageDiv.appendChild(contentDiv);
     elements.messages.appendChild(messageDiv);
+    
+    // Make collapsible
+    makeCollapsible(messageDiv, headerDiv, contentDiv);
     
     console.log('[Webview] Thinking block created and appended');
     console.log('[Webview] Messages children count:', elements.messages.children.length);
@@ -466,14 +1046,27 @@ function handleToolStart(message) {
     console.log('[Webview] Tool start:', message.data);
     const data = message.data;
     
-    // Create tool execution message block
+    // Create tool execution message block with collapsible structure
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message tool-message';
     messageDiv.id = `tool-${Date.now()}`;
     messageDiv.dataset.toolName = data.tool_name || data.operation;
+    messageDiv.dataset.collapsed = 'true';
     
+    // Collapsible header (clickable)
     const headerDiv = document.createElement('div');
-    headerDiv.className = 'message-header';
+    headerDiv.className = 'message-header tool-header';
+    headerDiv.setAttribute('role', 'button');
+    headerDiv.setAttribute('aria-expanded', 'false');
+    headerDiv.setAttribute('tabindex', '0');
+    headerDiv.setAttribute('aria-label', `Expand tool: ${data.tool_name || data.operation}`);
+    
+    // Chevron icon
+    const chevronSpan = document.createElement('span');
+    chevronSpan.className = 'collapse-icon';
+    chevronSpan.setAttribute('aria-hidden', 'true');
+    chevronSpan.innerHTML = `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4"/></svg>`;
+    headerDiv.appendChild(chevronSpan);
     
     const roleDiv = document.createElement('div');
     roleDiv.className = 'message-role tool-role';
@@ -491,15 +1084,20 @@ function handleToolStart(message) {
     statusSpan.textContent = 'Running...';
     roleDiv.appendChild(statusSpan);
     
+    const now = new Date();
     const timestampDiv = document.createElement('span');
     timestampDiv.className = 'message-timestamp';
-    timestampDiv.textContent = formatTime(new Date());
+    timestampDiv.textContent = formatRelativeTime(now);
+    timestampDiv.title = formatFullTimestamp(now); // Hover tooltip
+    timestampDiv.dataset.timestamp = now.getTime().toString(); // Store for refresh
     
     headerDiv.appendChild(roleDiv);
     headerDiv.appendChild(timestampDiv);
     
+    // Collapsible content (hidden by default)
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content tool-content';
+    contentDiv.hidden = true;
     
     // Add collapsible input
     if (data.input) {
@@ -523,6 +1121,9 @@ function handleToolStart(message) {
     messageDiv.appendChild(contentDiv);
     elements.messages.appendChild(messageDiv);
     
+    // Make collapsible
+    makeCollapsible(messageDiv, headerDiv, contentDiv);
+    
     elements.messages.scrollTop = elements.messages.scrollHeight;
 }
 
@@ -541,7 +1142,7 @@ function handleToolEnd(message) {
         const statusSpan = toolMessage.querySelector('.tool-status');
         if (statusSpan) {
             const success = data.result?.success !== false;
-            statusSpan.textContent = success ? '✓' : '✗';
+            statusSpan.textContent = success ? ' ✓ Success' : ' ✗ Error';
             statusSpan.className = `tool-status ${success ? 'success' : 'error'}`;
             
             // Add duration
@@ -566,9 +1167,26 @@ function handleToolEnd(message) {
             
             const pre = document.createElement('pre');
             const code = document.createElement('code');
-            code.textContent = typeof data.result.output === 'string' 
+            
+            // Get result text
+            let resultText = typeof data.result.output === 'string' 
                 ? data.result.output 
                 : JSON.stringify(data.result, null, 2);
+            
+            // Truncate long results (>500 chars) and add note
+            if (resultText.length > 500) {
+                toolMessage.dataset.fullResult = resultText;
+                const truncatedText = resultText.substring(0, 500);
+                code.textContent = truncatedText;
+                
+                const truncateNote = document.createElement('div');
+                truncateNote.className = 'tool-truncate-note';
+                truncateNote.textContent = `... (${resultText.length - 500} more characters, expand to see full output)`;
+                pre.appendChild(truncateNote);
+            } else {
+                code.textContent = resultText;
+            }
+            
             pre.appendChild(code);
             resultDetails.appendChild(pre);
             
@@ -582,9 +1200,22 @@ function handleToolEnd(message) {
 function handlePromptComplete(data) {
     console.log('[Webview] Prompt complete:', data);
     
-    // Remove streaming cursor
+    // Remove streaming cursor and render markdown
     if (currentMessageElement) {
         currentMessageElement.classList.remove('streaming');
+        
+        // Render the complete message as markdown
+        if (marked && currentMessageElement.dataset.rawContent) {
+            try {
+                const rawContent = currentMessageElement.dataset.rawContent;
+                currentMessageElement.innerHTML = marked.parse(rawContent);
+                highlightCodeBlocks(currentMessageElement);
+                delete currentMessageElement.dataset.rawContent;
+            } catch (err) {
+                console.warn('Markdown rendering error:', err);
+                // Keep the plain text version
+            }
+        }
     }
     
     isStreaming = false;
@@ -739,7 +1370,41 @@ function initialize() {
     // Initialize status bar toggle
     initStatusBar();
     
+    // Initialize code copy functionality
+    initCodeCopy();
+    
+    // Start timestamp refresh (update every 60 seconds)
+    startTimestampRefresh();
+    
     console.log('[Amplifier Webview] Initialization complete');
+}
+
+/**
+ * Start periodic timestamp refresh
+ * Updates relative timestamps every 60 seconds
+ */
+function startTimestampRefresh() {
+    // Clear any existing interval
+    if (timestampRefreshInterval) {
+        clearInterval(timestampRefreshInterval);
+    }
+    
+    // Update every 60 seconds
+    timestampRefreshInterval = setInterval(() => {
+        updateAllTimestamps();
+    }, 60000); // 60 seconds
+    
+    console.log('[Amplifier Webview] Timestamp auto-refresh started (60s interval)');
+}
+
+/**
+ * Stop timestamp refresh (cleanup)
+ */
+function stopTimestampRefresh() {
+    if (timestampRefreshInterval) {
+        clearInterval(timestampRefreshInterval);
+        timestampRefreshInterval = null;
+    }
 }
 
 // Status bar toggle and copy functionality
@@ -797,6 +1462,187 @@ function showCopySuccess(button) {
         button.classList.remove('copy-button--success');
         button.setAttribute('aria-label', originalLabel);
     }, 1500);
+}
+
+// Syntax highlighting helper
+function highlightCodeBlocks(container) {
+    if (!hljs) return;
+    
+    // Highlight all code blocks in the container
+    const codeBlocks = container.querySelectorAll('pre code');
+    codeBlocks.forEach(block => {
+        // Check if already highlighted
+        if (!block.classList.contains('hljs')) {
+            hljs.highlightElement(block);
+        }
+    });
+    
+    // Also highlight inline code (subtle highlighting)
+    const inlineCode = container.querySelectorAll('code:not(pre code)');
+    inlineCode.forEach(code => {
+        // Don't re-highlight
+        if (!code.classList.contains('hljs')) {
+            // Try to detect language for inline code (simple heuristics)
+            const text = code.textContent;
+            if (text.length < 100) { // Only for short snippets
+                try {
+                    const result = hljs.highlightAuto(text, ['python', 'javascript', 'typescript', 'bash']);
+                    if (result.relevance > 3) { // Only apply if confident
+                        code.innerHTML = result.value;
+                        code.classList.add('hljs-inline');
+                    }
+                } catch (err) {
+                    // Silently ignore inline code highlighting errors
+                }
+            }
+        }
+    });
+}
+
+// ===== CODE BLOCK COPY FUNCTIONALITY =====
+
+/**
+ * Add copy buttons to all code blocks in a container
+ * @param {HTMLElement} container - Container to search for code blocks
+ */
+function addCopyButtonsToCodeBlocks(container = document) {
+    const codeBlocks = container.querySelectorAll('pre > code');
+    
+    codeBlocks.forEach(codeBlock => {
+        const pre = codeBlock.parentElement;
+        
+        // Skip if already has copy button
+        if (pre.querySelector('.code-copy-btn')) return;
+        
+        // Wrap pre in a container div for positioning
+        const wrapper = document.createElement('div');
+        wrapper.className = 'code-block-wrapper';
+        pre.parentNode.insertBefore(wrapper, pre);
+        wrapper.appendChild(pre);
+        
+        // Create copy button
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'code-copy-btn';
+        copyBtn.setAttribute('aria-label', 'Copy code');
+        copyBtn.setAttribute('type', 'button');
+        
+        // Add copy icon SVG (codicon-copy style)
+        copyBtn.innerHTML = `
+            <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+                <path fill-rule="evenodd" clip-rule="evenodd" d="M4 4l1-1h5.414L14 6.586V14l-1 1H5l-1-1V4zm9 3l-3-3H5v10h8V7z"/>
+                <path fill-rule="evenodd" clip-rule="evenodd" d="M3 1L2 2v10l1 1V2h6.414l-1-1H3z"/>
+            </svg>
+        `;
+        
+        wrapper.appendChild(copyBtn);
+    });
+}
+
+/**
+ * Handle copy button clicks using event delegation
+ * @param {MouseEvent} e - Click event
+ */
+async function handleCodeCopy(e) {
+    const copyBtn = e.target.closest('.code-copy-btn');
+    if (!copyBtn) return;
+    
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const wrapper = copyBtn.closest('.code-block-wrapper');
+    const codeBlock = wrapper.querySelector('code');
+    if (!codeBlock) return;
+    
+    const code = codeBlock.textContent;
+    
+    try {
+        // Try clipboard API first
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(code);
+        } else {
+            // Fallback for older browsers
+            const textarea = document.createElement('textarea');
+            textarea.value = code;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+        }
+        
+        // Show success feedback
+        showCopyFeedback(copyBtn, true);
+    } catch (err) {
+        console.error('Failed to copy code:', err);
+        showCopyFeedback(copyBtn, false);
+    }
+}
+
+/**
+ * Show visual feedback after copy attempt
+ * @param {HTMLElement} button - Copy button element
+ * @param {boolean} success - Whether copy succeeded
+ */
+function showCopyFeedback(button, success) {
+    const originalLabel = button.getAttribute('aria-label');
+    const originalHTML = button.innerHTML;
+    
+    // Update button content
+    if (success) {
+        button.classList.add('code-copy-btn--success');
+        button.setAttribute('aria-label', 'Copied!');
+        button.innerHTML = `
+            <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+                <path d="M14.431 3.323l-8.47 10-.79-.036-3.35-4.77.818-.574 2.978 4.24 8.051-9.506.764.646z"/>
+            </svg>
+        `;
+    } else {
+        button.classList.add('code-copy-btn--error');
+        button.setAttribute('aria-label', 'Failed to copy');
+        button.innerHTML = `
+            <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+                <path d="M8 1a7 7 0 110 14A7 7 0 018 1zm0 2a5 5 0 100 10A5 5 0 008 3zm.5 8H8V6h.5v5zm0 1H8v1h.5v-1z"/>
+            </svg>
+        `;
+    }
+    
+    // Reset after 2 seconds
+    setTimeout(() => {
+        button.classList.remove('code-copy-btn--success', 'code-copy-btn--error');
+        button.setAttribute('aria-label', originalLabel);
+        button.innerHTML = originalHTML;
+    }, 2000);
+}
+
+/**
+ * Initialize code copy functionality with event delegation
+ */
+function initCodeCopy() {
+    // Add copy buttons to existing code blocks
+    addCopyButtonsToCodeBlocks();
+    
+    // Use event delegation for dynamically added code blocks
+    document.addEventListener('click', handleCodeCopy);
+    
+    // Watch for new code blocks being added (for streaming messages)
+    const messagesContainer = document.getElementById('messages');
+    if (messagesContainer) {
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                mutation.addedNodes.forEach((node) => {
+                    if (node.nodeType === Node.ELEMENT_NODE) {
+                        addCopyButtonsToCodeBlocks(node);
+                    }
+                });
+            });
+        });
+        
+        observer.observe(messagesContainer, {
+            childList: true,
+            subtree: true
+        });
+    }
 }
 
 // Run initialization

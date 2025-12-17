@@ -21,6 +21,78 @@
 
     <!-- Main chat interface -->
     <div id="chat-interface" class="hidden">
+        <!-- Search bar (collapsible) -->
+        <div id="search-bar" class="search-bar hidden">
+            <div class="search-input-wrapper">
+                <input 
+                    type="text" 
+                    id="search-input" 
+                    placeholder="Search in conversation..." 
+                    aria-label="Search messages"
+                />
+                <button 
+                    id="search-clear" 
+                    class="search-button" 
+                    aria-label="Clear search"
+                    title="Clear search"
+                >
+                    <svg viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M8 0a8 8 0 108 8 8 8 0 00-8-8zM11.854 10.146l-1.708 1.708L8 9.708l-2.146 2.146-1.708-1.708L6.292 8 4.146 5.854l1.708-1.708L8 6.292l2.146-2.146 1.708 1.708L9.708 8z"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="search-controls">
+                <div class="search-count" id="search-count" aria-live="polite">
+                    <span id="search-count-text">No results</span>
+                </div>
+                <div class="search-navigation">
+                    <button 
+                        id="search-prev" 
+                        class="search-button" 
+                        aria-label="Previous match (Shift+Enter)"
+                        title="Previous match (Shift+Enter)"
+                        disabled
+                    >
+                        <svg viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M8 12L3 7h10z"/>
+                        </svg>
+                    </button>
+                    <button 
+                        id="search-next" 
+                        class="search-button" 
+                        aria-label="Next match (Enter)"
+                        title="Next match (Enter)"
+                        disabled
+                    >
+                        <svg viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M8 4l5 5H3z"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="search-options">
+                    <button 
+                        id="search-case-toggle" 
+                        class="search-button search-option-toggle" 
+                        aria-label="Match case"
+                        title="Match case"
+                        aria-pressed="false"
+                    >
+                        <span class="search-option-label">Aa</span>
+                    </button>
+                </div>
+                <button 
+                    id="search-close" 
+                    class="search-button" 
+                    aria-label="Close search (Escape)"
+                    title="Close search (Escape)"
+                >
+                    <svg viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M2.146 2.854a.5.5 0 11.708-.708L8 7.293l5.146-5.147a.5.5 0 01.708.708L8.707 8l5.147 5.146a.5.5 0 01-.708.708L8 8.707l-5.146 5.147a.5.5 0 01-.708-.708L7.293 8z"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
         <!-- Messages container -->
         <div id="messages"></div>
 

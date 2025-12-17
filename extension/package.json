@@ -40,6 +40,43 @@
             {
                 "command": "amplifier.improveSelection",
                 "title": "Amplifier: Improve Selection"
+            },
+            {
+                "command": "amplifier.showKeyboardShortcuts",
+                "title": "Amplifier: Show Keyboard Shortcuts"
+            },
+            {
+                "command": "amplifier.loadConversation",
+                "title": "Amplifier: Load Conversation"
+            },
+            {
+                "command": "amplifier.deleteConversation",
+                "title": "Amplifier: Delete Conversation",
+                "icon": "$(trash)"
+            },
+            {
+                "command": "amplifier.refreshHistory",
+                "title": "Amplifier: Refresh History",
+                "icon": "$(refresh)"
+            },
+            {
+                "command": "amplifier.clearHistory",
+                "title": "Amplifier: Clear All History",
+                "icon": "$(clear-all)"
+            }
+        ],
+        "keybindings": [
+            {
+                "command": "amplifier.showChat",
+                "key": "ctrl+shift+a",
+                "mac": "cmd+shift+a",
+                "when": "!terminalFocus"
+            },
+            {
+                "command": "workbench.view.extension.amplifier",
+                "key": "ctrl+shift+a",
+                "mac": "cmd+shift+a",
+                "when": "!terminalFocus"
             }
         ],
         "viewsContainers": {
@@ -57,6 +94,30 @@
                     "type": "webview",
                     "id": "amplifier.chatView",
                     "name": "Chat"
+                },
+                {
+                    "id": "amplifier.conversationHistory",
+                    "name": "History"
+                }
+            ]
+        },
+        "menus": {
+            "view/title": [
+                {
+                    "command": "amplifier.refreshHistory",
+                    "when": "view == amplifier.conversationHistory",
+                    "group": "navigation"
+                },
+                {
+                    "command": "amplifier.clearHistory",
+                    "when": "view == amplifier.conversationHistory"
+                }
+            ],
+            "view/item/context": [
+                {
+                    "command": "amplifier.deleteConversation",
+                    "when": "view == amplifier.conversationHistory && viewItem == conversation",
+                    "group": "inline"
                 }
             ]
         },
@@ -111,7 +172,9 @@
         "@vscode/test-cli": "^0.0.10",
         "@vscode/test-electron": "^2.3.0",
         "copy-webpack-plugin": "^13.0.1",
+        "css-loader": "^7.1.2",
         "eslint": "^8.57.0",
+        "style-loader": "^4.0.0",
         "ts-loader": "^9.5.0",
         "typescript": "^5.3.0",
         "vsce": "^2.15.0",
@@ -119,6 +182,8 @@
         "webpack-cli": "^5.1.0"
     },
     "dependencies": {
-        "eventsource": "^4.1.0"
+        "eventsource": "^4.1.0",
+        "highlight.js": "^11.9.0",
+        "marked": "^11.0.0"
     }
 }

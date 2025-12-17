@@ -8,12 +8,14 @@ import { CredentialsManager } from './services/CredentialsManager';
 
 // Providers
 import { ChatViewProvider } from './providers/ChatViewProvider';
+import { ConversationHistoryProvider } from './providers/ConversationHistoryProvider';
 
 let client: AmplifierClient;
 let eventStream: EventStreamManager;
 let serverManager: ServerManager;
 let credentialsManager: CredentialsManager;
 let chatViewProvider: ChatViewProvider;
+let conversationHistoryProvider: ConversationHistoryProvider;
 let statusBar: vscode.StatusBarItem;
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -45,6 +47,19 @@ export async function activate(context: vscode.ExtensionContext) {
         )
     );
 
+    // Register Conversation History Provider
+    conversationHistoryProvider = new ConversationHistoryProvider(context, client);
+    
+    context.subscriptions.push(
+        vscode.window.registerTreeDataProvider(
+            'amplifier.conversationHistory',
+            conversationHistoryProvider
+        )
+    );
+
+    // Set history provider reference in chat provider (for adding new conversations)
+    (chatViewProvider as any).conversationHistoryProvider = conversationHistoryProvider;
+
     // Create status bar item
     statusBar = vscode.window.createStatusBarItem(
         'amplifier.status',
@@ -61,7 +76,36 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('amplifier.showChat', () => {
             vscode.commands.executeCommand('amplifier.chatView.focus');
         }),
-        vscode.commands.registerCommand('amplifier.setApiKey', () => credentialsManager.promptForApiKey())
+        vscode.commands.registerCommand('amplifier.setApiKey', () => credentialsManager.promptForApiKey()),
+        // TODO: Implement keyboard shortcuts panel (P5.6.7)
+        // vscode.commands.registerCommand('amplifier.showKeyboardShortcuts', () => {
+        //     chatViewProvider.showKeyboardShortcuts();
+        // }),
+        // TODO: Implement conversation history feature (P5.6.9)
+        // vscode.commands.registerCommand('amplifier.loadConversation', (sessionId: string) => {
+        //     chatViewProvider.loadConversation(sessionId);
+        // }),
+        vscode.commands.registerCommand('amplifier.deleteConversation', async (item: any) => {
+            const sessionId = item.conversation.session_id;
+            const title = item.conversation.title;
+            
+            const choice = await vscode.window.showWarningMessage(
+                `Delete conversation "${title}"?`,
+                { modal: true },
+                'Delete'
+            );
+            
+            if (choice === 'Delete') {
+                conversationHistoryProvider.removeConversation(sessionId);
+                vscode.window.showInformationMessage('Conversation deleted');
+            }
+        }),
+        vscode.commands.registerCommand('amplifier.refreshHistory', () => {
+            conversationHistoryProvider.syncWithServer();
+        }),
+        vscode.commands.registerCommand('amplifier.clearHistory', () => {
+            conversationHistoryProvider.clearAll();
+        })
     );
 
     // Initialize asynchronously (non-blocking) - don't await
