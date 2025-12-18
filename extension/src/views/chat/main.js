@@ -6,6 +6,118 @@
 // VS Code API (injected by VS Code)
 const vscode = acquireVsCodeApi();
 
+// Markdown/syntax-highlighting libraries (loaded via CDN)
+const marked = window.marked;
+const hljs = window.hljs;
+
+if (marked) {
+    marked.setOptions({
+        breaks: true,
+        gfm: true,
+    });
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text ?? '';
+    return div.innerHTML;
+}
+
+function sanitizeHtml(html) {
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    template.content.querySelectorAll('script, style').forEach(node => node.remove());
+    template.content.querySelectorAll('*').forEach(node => {
+        [...node.attributes].forEach(attr => {
+            if (attr.name.toLowerCase().startsWith('on')) {
+                node.removeAttribute(attr.name);
+            }
+        });
+    });
+    return template.innerHTML;
+}
+
+function renderMarkdown(markdownText) {
+    if (!markdownText) {
+        return '';
+    }
+    if (!marked) {
+        return escapeHtml(markdownText);
+    }
+    const html = marked.parse(markdownText);
+    return sanitizeHtml(html);
+}
+
+function highlightCodeBlocks(container) {
+    if (!container) return;
+    if (hljs) {
+        container.querySelectorAll('pre code').forEach(block => {
+            try {
+                hljs.highlightElement(block);
+            } catch (err) {
+                console.warn('Highlight.js error:', err);
+            }
+        });
+    }
+    addCopyButtons(container);
+}
+
+function setMessageContent(element, text) {
+    if (!element) return;
+    element.dataset.rawContent = text || '';
+    const html = renderMarkdown(text || '');
+    element.innerHTML = html;
+    highlightCodeBlocks(element);
+}
+
+function addCopyButtons(container) {
+    if (!container) return;
+    const blocks = container.querySelectorAll('pre');
+    blocks.forEach(pre => {
+        if (pre.parentElement?.classList.contains('code-block')) {
+            return;
+        }
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'code-block';
+
+        pre.parentElement?.insertBefore(wrapper, pre);
+        wrapper.appendChild(pre);
+
+        const copyButton = document.createElement('button');
+        copyButton.type = 'button';
+        copyButton.className = 'copy-code-button';
+        copyButton.setAttribute('aria-label', 'Copy code');
+        copyButton.innerHTML = `
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M3 1h7l4 4v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1zm7 1H3v12h9V6H9V2z"/>
+            </svg>
+        `;
+
+        copyButton.addEventListener('click', async () => {
+            const code = pre.querySelector('code');
+            const text = code ? code.innerText : pre.innerText;
+            try {
+                await navigator.clipboard.writeText(text);
+                showCopyFeedback(copyButton);
+            } catch (error) {
+                console.error('Copy failed:', error);
+            }
+        });
+
+        wrapper.appendChild(copyButton);
+    });
+}
+
+function showCopyFeedback(button) {
+    button.classList.add('copy-success');
+    button.setAttribute('aria-label', 'Copied!');
+    setTimeout(() => {
+        button.classList.remove('copy-success');
+        button.setAttribute('aria-label', 'Copy code');
+    }, 1500);
+}
+
 // ===== APPROVAL BAR CLASS =====
 class ApprovalBar {
     constructor() {
@@ -319,7 +431,8 @@ function addMessage(role, content, timestamp = null) {
 
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
-    contentDiv.textContent = content;
+    setMessageContent(contentDiv, content || '');
+    contentDiv.dataset.rawContent = content || '';
 
     messageDiv.appendChild(headerDiv);
     messageDiv.appendChild(contentDiv);
@@ -381,11 +494,15 @@ function handleContentDelta(message) {
         isStreaming = true;
         currentMessageElement = addMessage('assistant', '');
         currentMessageElement.classList.add('streaming');
+        currentMessageElement.dataset.rawContent = '';
     }
 
     // Append delta
     if (currentMessageElement && data.delta) {
-        currentMessageElement.textContent += data.delta;
+        const raw = currentMessageElement.dataset.rawContent || '';
+        const updated = raw + data.delta;
+        currentMessageElement.dataset.rawContent = updated;
+        currentMessageElement.textContent = updated;
         elements.messages.scrollTop = elements.messages.scrollHeight;
     }
 }
@@ -599,6 +716,12 @@ function handlePromptComplete(data) {
     if (data.data && data.data.response && !currentMessageElement) {
         console.log('[Webview] Displaying complete response:', data.data.response);
         currentMessageElement = addMessage('assistant', data.data.response);
+    }
+    
+    if (currentMessageElement) {
+        const rawContent = currentMessageElement.dataset.rawContent || currentMessageElement.textContent || '';
+        setMessageContent(currentMessageElement, rawContent);
+        delete currentMessageElement.dataset.rawContent;
     }
 
     // Add token usage footer

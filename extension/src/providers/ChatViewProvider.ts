@@ -32,6 +32,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private _credentialsManager: CredentialsManager;
     private _contextGatherer: ContextGatherer;
     private _approvalHandler: ApprovalHandler;
+    private _lastWorkspaceRoot: string | null = null;
+    private _sessionStarting: Promise<void> | null = null;
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
@@ -144,7 +146,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     /**
      * Start a new session
      */
-    private async _startSession(): Promise<void> {
+    private async _startSession(context?: WorkspaceContext): Promise<void> {
+        if (this._sessionStarting) {
+            await this._sessionStarting;
+            return;
+        }
+
+        this._sessionStarting = this._startSessionInternal(context)
+            .finally(() => {
+                this._sessionStarting = null;
+            });
+
+        await this._sessionStarting;
+    }
+
+    private async _startSessionInternal(context?: WorkspaceContext): Promise<void> {
         try {
             // Get API key
             const apiKey = await this._credentialsManager.getApiKey();
@@ -154,7 +170,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             }
 
             // Gather workspace context
-            const context = await this._gatherContext();
+            const gatheredContext = context ?? await this._gatherContext();
+            if (!gatheredContext.workspace_root) {
+                vscode.window.showWarningMessage('Open a workspace folder to use Amplifier.');
+                return;
+            }
 
             // Get configuration
             const config = vscode.workspace.getConfiguration('amplifier');
@@ -168,7 +188,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 credentials: {
                     anthropic_api_key: apiKey
                 },
-                context
+                context: gatheredContext
             };
 
             // Create session
@@ -184,8 +204,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 type: 'sessionStarted',
                 sessionId: this._sessionId,
                 profile: response.profile,
-                workspaceRoot: context.workspace_root
+                workspaceRoot: gatheredContext.workspace_root
             });
+
+            this._lastWorkspaceRoot = gatheredContext.workspace_root;
 
         } catch (error: any) {
             console.error('[Amplifier ChatViewProvider] Failed to start session:', error);
@@ -212,6 +234,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             await this._client.deleteSession(this._sessionId);
             this._eventStream.unsubscribe();
             this._sessionId = null;
+            this._lastWorkspaceRoot = null;
 
             this._postMessage({ type: 'sessionStopped' });
         } catch (error: any) {
@@ -223,17 +246,27 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
      * Send a message/prompt to the session
      */
     private async _sendMessage(text: string): Promise<void> {
+        const freshContext = await this._gatherContext();
+        if (!freshContext.workspace_root) {
+            vscode.window.showWarningMessage('Open a workspace folder before sending messages.');
+            return;
+        }
+
         if (!this._sessionId) {
-            await this._startSession();
+            await this._startSession(freshContext);
             if (!this._sessionId) {
                 return; // Failed to start
+            }
+        } else if (this._lastWorkspaceRoot && freshContext.workspace_root !== this._lastWorkspaceRoot) {
+            await this._stopSession();
+            await this._startSession(freshContext);
+            if (!this._sessionId) {
+                return;
             }
         }
 
         try {
-            // 🆕 Gather fresh context on every message
             console.log('[ChatViewProvider] Gathering fresh context for message...');
-            const freshContext = await this._gatherContext();
 
             await this._client.submitPrompt(this._sessionId, {
                 prompt: text,
@@ -256,10 +289,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 if (this._sessionId) {
                     // Try sending the message again with the new session
                     try {
-                        const freshContext = await this._gatherContext();
+                        const retryContext = await this._gatherContext();
+                        if (!retryContext.workspace_root) {
+                            vscode.window.showWarningMessage('Open a workspace folder before sending messages.');
+                            return;
+                        }
                         await this._client.submitPrompt(this._sessionId, {
                             prompt: text,
-                            context_update: freshContext
+                            context_update: retryContext
                         });
                         console.log('[ChatViewProvider] Message sent successfully after session recreation');
                         return; // Success
@@ -476,8 +513,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} https:; font-src ${webview.cspSource}; connect-src http://127.0.0.1:8765;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline' https://cdn.jsdelivr.net; script-src 'nonce-${nonce}' https://cdn.jsdelivr.net; img-src ${webview.cspSource} https:; font-src ${webview.cspSource}; connect-src http://127.0.0.1:8765;">
     <link href="${stylesPath}" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css" media="(prefers-color-scheme: dark)">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github.min.css" media="(prefers-color-scheme: light)">
     <title>Amplifier Chat</title>
 </head>
 <body>
@@ -710,6 +749,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     </div> <!-- End status bar -->
 </div> <!-- End chat-interface -->
 
+    <script nonce="${nonce}" src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+    <script nonce="${nonce}" src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/highlight.min.js"></script>
     <script nonce="${nonce}" src="${scriptPath}"></script>
 </body>
 </html>`;

@@ -51,14 +51,20 @@ def register_workspace_hook(
         if not workspace_root:
             return HookResult(action="continue")
 
-        if tool_name in {"bash", "search"}:
+        if tool_name == "bash":
             tool_config["working_dir"] = workspace_root
-            logger.info(f"[WORKSPACE SANDBOX] Set working_dir for {tool_name} -> {workspace_root}")
+            cmd = tool_input.get("command")
+            if cmd:
+                tool_input["command"] = f"cd '{workspace_root}' && {cmd}"
+            logger.info(f"[WORKSPACE SANDBOX] Enforced bash working_dir -> {workspace_root}")
+
+        if tool_name == "search":
+            tool_config["working_dir"] = workspace_root
+            logger.info(f"[WORKSPACE SANDBOX] Enforced search working_dir -> {workspace_root}")
 
         if tool_name in {"write_file", "edit_file", "read_file"}:
             tool_config["working_dir"] = workspace_root
             tool_config["allowed_write_paths"] = [workspace_root]
-            # Normalize relative paths coming from the agent
             file_path = _normalize_path(workspace_root, tool_input.get("file_path"))
             if file_path:
                 tool_input["file_path"] = file_path
@@ -75,4 +81,3 @@ def register_workspace_hook(
 
     logger.info("[WORKSPACE SANDBOX] Hook registered to enforce workspace root")
     return unregister
-
