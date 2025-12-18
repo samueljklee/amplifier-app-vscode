@@ -12,7 +12,11 @@ from amplifier_collections import CollectionResolver
 from amplifier_module_resolution import StandardModuleSourceResolver
 
 from .ux_systems import VSCodeApprovalSystem, VSCodeDisplaySystem
-from ..hooks import register_streaming_hooks, register_approval_hook
+from ..hooks import (
+    register_streaming_hooks,
+    register_approval_hook,
+    register_workspace_hook,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -251,6 +255,18 @@ class SessionRunner:
             logger.info(f"[SESSION START] About to register streaming bridge hooks for session {self.session_id}")
             self._hook_unregisters = register_streaming_hooks(self.session.coordinator)
             logger.info(f"[SESSION START] Streaming bridge hooks registered: {len(self._hook_unregisters)} hooks")
+            
+            # Register workspace sandbox hook to enforce working_dir on every tool invocation
+            workspace_root = self.workspace_context.get("workspace_root")
+            if workspace_root:
+                logger.info(f"[SESSION START] Registering workspace sandbox hook for root: {workspace_root}")
+                sandbox_unregister = register_workspace_hook(
+                    self.session.coordinator,
+                    workspace_root,
+                )
+                self._hook_unregisters.append(sandbox_unregister)
+            else:
+                logger.warning("[SESSION START] Workspace root missing, skipping sandbox hook registration")
             
             # Register approval gate hook
             # This hook intercepts tool:pre events and returns action="ask_user" for destructive tools

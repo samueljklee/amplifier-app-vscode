@@ -14,6 +14,8 @@ import { WorkspaceContext, OpenFile, GitState, Diagnostic, Selection } from '../
 import * as path from 'path';
 
 export class ContextGatherer {
+    private lastWorkspaceRoot: string | null = null;
+
     /**
      * Gather comprehensive workspace context
      */
@@ -49,26 +51,59 @@ export class ContextGatherer {
     /**
      * P2.7.2: Get workspace root directory
      */
-    getWorkspaceRoot(): string {
+    getWorkspaceRoot(logDetails: boolean = true): string {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         
-        console.log('[ContextGatherer] 🔍 Detecting workspace root...');
-        console.log('[ContextGatherer]   Workspace folders count:', workspaceFolders?.length || 0);
+        if (logDetails) {
+            console.log('[ContextGatherer] 🔍 Detecting workspace root...');
+            console.log('[ContextGatherer]   Workspace folders count:', workspaceFolders?.length || 0);
+        }
         
         if (!workspaceFolders || workspaceFolders.length === 0) {
-            console.log('[ContextGatherer]   ❌ No workspace folders found!');
+            if (logDetails) {
+                console.log('[ContextGatherer]   ❌ No workspace folders found!');
+            }
             return '';
         }
         
-        // Log all workspace folders (for multi-root workspaces)
-        workspaceFolders.forEach((folder, i) => {
-            console.log(`[ContextGatherer]   [${i}] ${folder.name}: ${folder.uri.fsPath}`);
-        });
+        if (logDetails) {
+            workspaceFolders.forEach((folder, i) => {
+                console.log(`[ContextGatherer]   [${i}] ${folder.name}: ${folder.uri.fsPath}`);
+            });
+        }
         
-        // Return the first workspace folder (most common case)
-        const root = workspaceFolders[0].uri.fsPath;
-        console.log(`[ContextGatherer]   ✅ Using workspace root: ${root}`);
-        return root;
+        const remember = (folder: vscode.WorkspaceFolder, reason: string): string => {
+            const folderPath = folder.uri.fsPath;
+            if (logDetails || folderPath !== this.lastWorkspaceRoot) {
+                console.log(`[ContextGatherer]   ✅ Using workspace root (${reason}): ${folderPath}`);
+            }
+            this.lastWorkspaceRoot = folderPath;
+            return folderPath;
+        };
+        
+        const activeEditor = vscode.window.activeTextEditor;
+        if (activeEditor && activeEditor.document.uri.scheme === 'file') {
+            const activeFolder = vscode.workspace.getWorkspaceFolder(activeEditor.document.uri);
+            if (activeFolder) {
+                return remember(activeFolder, 'active editor');
+            }
+        }
+        
+        if (workspaceFolders.length === 1) {
+            return remember(workspaceFolders[0], 'single folder');
+        }
+        
+        for (const editor of vscode.window.visibleTextEditors) {
+            if (editor.document.uri.scheme !== 'file') {
+                continue;
+            }
+            const folder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
+            if (folder) {
+                return remember(folder, 'visible editor');
+            }
+        }
+        
+        return remember(workspaceFolders[0], 'first folder');
     }
 
     /**
@@ -282,7 +317,7 @@ export class ContextGatherer {
      * Get a path relative to workspace root
      */
     private getRelativePath(absolutePath: string): string {
-        const workspaceRoot = this.getWorkspaceRoot();
+        const workspaceRoot = this.getWorkspaceRoot(false);
         if (!workspaceRoot) {
             return absolutePath;
         }
