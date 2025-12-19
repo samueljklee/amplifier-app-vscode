@@ -565,70 +565,60 @@ function handleContentDelta(message) {
     }
 }
 
-function handleThinkingStart() {
-    console.log('[Webview] Thinking start');
-    
-    // Create thinking message block
+function createThinkingMessage(content) {
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message assistant thinking-message';
-    messageDiv.id = 'current-thinking-block';
     
     const headerDiv = document.createElement('div');
-    headerDiv.className = 'message-header';
+    headerDiv.className = 'message-header thinking-header';
     
     const roleDiv = document.createElement('div');
-    roleDiv.className = 'message-role';
+    roleDiv.className = 'message-role thinking-role';
     
-    // Add SVG icon
-    const icon = createIcon('M8 1a7 7 0 110 14A7 7 0 018 1zm0 2a5 5 0 100 10A5 5 0 008 3z');
-    roleDiv.appendChild(icon);
-    roleDiv.appendChild(document.createTextNode('Thinking'));
+    const pulse = document.createElement('span');
+    pulse.className = 'thinking-pulse';
+    roleDiv.appendChild(pulse);
     
-    const timestampDiv = document.createElement('span');
-    timestampDiv.className = 'message-timestamp';
-    timestampDiv.textContent = formatTime(new Date());
+    const label = document.createElement('span');
+    label.className = 'thinking-label';
+    label.textContent = 'Thinking';
+    roleDiv.appendChild(label);
     
     headerDiv.appendChild(roleDiv);
+    
+    const timestampDiv = document.createElement('span');
+    timestampDiv.className = 'message-timestamp thinking-timestamp';
+    timestampDiv.textContent = formatTime(new Date());
     headerDiv.appendChild(timestampDiv);
     
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content thinking-content';
-    contentDiv.id = 'thinking-content-text';
-    
+    const safeContent = content || '';
+    setMessageContent(contentDiv, safeContent);
+    contentDiv.dataset.rawContent = safeContent;
+
     messageDiv.appendChild(headerDiv);
     messageDiv.appendChild(contentDiv);
-    elements.messages.appendChild(messageDiv);
     
+    return { messageDiv, contentDiv };
+}
+
+function handleThinkingStart() {
+    console.log('[Webview] Thinking start');
+    const { messageDiv } = createThinkingMessage('Analyzing context…');
+    messageDiv.id = 'current-thinking-block';
+    elements.messages.appendChild(messageDiv);
     elements.messages.scrollTop = elements.messages.scrollHeight;
 }
 
 function handleThinkingDelta(message) {
-    console.log('[Webview] Thinking delta:', message.data);
-    console.log('[Webview] Thinking delta length:', message.data.delta?.length);
-    
-    // Always create a NEW thinking block for each thinking event
-    // (Multiple thinking blocks can occur during one execution)
-    console.log('[Webview] Creating new thinking block...');
-    
-    const messageDiv = document.createElement('div');
-    messageDiv.className = 'message assistant thinking-message';
-    
-    const roleDiv = document.createElement('div');
-    roleDiv.className = 'message-role';
-    roleDiv.textContent = '💭 Thinking';
-    
-    const contentDiv = document.createElement('div');
-    contentDiv.className = 'message-content thinking-content';
-    contentDiv.textContent = message.data.delta;
-    
-    messageDiv.appendChild(roleDiv);
-    messageDiv.appendChild(contentDiv);
+    const deltaText = (message?.data?.delta || '').trim();
+    if (!deltaText) {
+        return;
+    }
+    console.log('[Webview] Thinking delta:', deltaText.length);
+    const { messageDiv, contentDiv } = createThinkingMessage(deltaText);
     elements.messages.appendChild(messageDiv);
-    
-    console.log('[Webview] Thinking block created and appended');
-    console.log('[Webview] Messages children count:', elements.messages.children.length);
-    
-    // Scroll to show thinking
     elements.messages.scrollTop = elements.messages.scrollHeight;
 }
 

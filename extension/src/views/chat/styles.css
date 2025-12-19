@@ -37,7 +37,7 @@ body {
     flex-direction: column;
     height: 100%;
     position: relative;
-    padding: 0 16px 16px;
+    padding: 0;
 }
 
 .chat-header {
@@ -462,9 +462,12 @@ body {
 }
 
 .message.thinking-message {
-    background-color: var(--vscode-editorInfo-background);
+    background-color: var(--vscode-editorInlayHint-background, var(--vscode-editorInfo-background));
     border-left-color: var(--vscode-editorInfo-border);
-    opacity: 0.9;
+    border-left-width: 2px;
+    padding-left: 16px;
+    margin-left: 4px;
+    border-radius: 6px;
 }
 
 .message.tool-message {
@@ -495,12 +498,59 @@ body {
     vertical-align: text-bottom;
 }
 
-.thinking-message .role-icon {
-    color: var(--vscode-editorInfo-foreground);
-}
-
 .tool-message .role-icon {
     color: var(--vscode-editorWarning-foreground);
+}
+
+.thinking-header {
+    align-items: center;
+}
+
+.thinking-role {
+    gap: 6px;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 0.8em;
+    color: var(--vscode-descriptionForeground);
+}
+
+.thinking-pulse {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--vscode-editorInfo-foreground);
+    display: inline-block;
+    animation: thinkingPulse 1.2s ease-in-out infinite;
+}
+
+.thinking-label {
+    font-weight: 400;
+    letter-spacing: 0.02em;
+}
+
+.thinking-timestamp {
+    opacity: 0.5;
+    font-size: 0.72em;
+}
+
+.thinking-content {
+    font-style: italic;
+    color: var(--vscode-foreground);
+    opacity: 0.8;
+    margin-top: 4px;
+    padding: 0;
+    font-weight: 400;
+}
+
+.thinking-content strong,
+.thinking-content b {
+    font-weight: 400;
+}
+
+@keyframes thinkingPulse {
+    0% { opacity: 0.4; transform: scale(0.9); }
+    50% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0.4; transform: scale(0.9); }
 }
 
 .message-timestamp {

@@ -320,8 +320,8 @@ For detailed architecture, see `docs/ARCHITECTURE.md`. Quick summary:
 #### P5.6 - Design Polish (Optional, Post-v1.0)
 | ID | Task | Dependencies | Agent | Status |
 |----|------|--------------|-------|--------|
-| P5.6.1 | Implement Markdown rendering in messages | P2.5.* | modular-builder | ☐ |
-| P5.6.2 | Add copy-to-clipboard buttons on code blocks | P2.5.5 | modular-builder | ☐ |
+| P5.6.1 | Implement Markdown rendering in messages | P2.5.* | modular-builder | ☑ |
+| P5.6.2 | Add copy-to-clipboard buttons on code blocks | P2.5.5 | modular-builder | ☑ |
 | P5.6.3 | Implement message editing/regeneration | P2.6.* | modular-builder | ☐ |
 | P5.6.4 | Add conversation export (JSON, Markdown) | P2.6.* | modular-builder | ☐ |
 | P5.6.5 | Implement search within conversation | P2.5.* | modular-builder | ☐ |
@@ -385,6 +385,11 @@ _No active tasks yet. Claim tasks from the backlog above._
   - Implemented server methods (health, info)
   - Added proper error handling with typed API errors
   - Build compiles successfully with no errors
+- [x] P5.6 Design Polish – Markdown & Code Copy (2025-12-18)
+  - Added marked + highlight.js into chat webview with CSP-safe script tags
+  - Rendered assistant/user messages as Markdown with sanitized HTML and syntax highlighting
+  - Added copy buttons to every code block with clipboard support and accessible feedback
+  - Updated chat styles to accommodate Markdown, inline code, and copy affordances
 - [x] P1.2 - Extension Entry Point (2025-12-11)
   - Created extension/src/extension.ts with activate() and deactivate()
   - Registered 4 commands: showChat, startServer, stopServer, setApiKey
