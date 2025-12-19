@@ -24,6 +24,7 @@ from amplifier_core.events import (
     TOOL_PRE,
 )
 
+from .utils import ensure_tool_input
 if TYPE_CHECKING:
     from amplifier_core import ModuleCoordinator
 
@@ -173,7 +174,7 @@ def register_streaming_hooks(coordinator: "ModuleCoordinator") -> list[callable]
         
         try:
             tool_name = data.get("tool_name", "unknown")
-            tool_input = data.get("input", {})
+            tool_input = ensure_tool_input(data)
             
             # Extract operation from tool_use data if available
             tool_use = data.get("tool_use", {})

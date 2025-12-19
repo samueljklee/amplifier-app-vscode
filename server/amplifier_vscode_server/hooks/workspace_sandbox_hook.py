@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, Any
 from amplifier_core import HookResult
 from amplifier_core.events import TOOL_PRE
 
+from .utils import ensure_tool_input
+
 if TYPE_CHECKING:
     from amplifier_core import ModuleCoordinator
 
@@ -45,7 +47,7 @@ def register_workspace_hook(
             return HookResult(action="continue")
 
         tool_name = data.get("tool_name")
-        tool_input = data.get("input", {})
+        tool_input = ensure_tool_input(data)
         tool_config = data.setdefault("config", {})
 
         if not workspace_root:

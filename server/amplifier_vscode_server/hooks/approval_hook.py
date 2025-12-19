@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING, Any
 from amplifier_core import HookResult
 from amplifier_core.events import TOOL_PRE
 
+from .utils import ensure_tool_input
+
 if TYPE_CHECKING:
     from amplifier_core import ModuleCoordinator
 
@@ -105,7 +107,7 @@ def _create_approval_gate_hook(coordinator: "ModuleCoordinator"):
         logger.info(f"[APPROVAL GATE]   Event: {event}")
         
         tool_name = data.get("tool_name")
-        tool_input = data.get("input", {})
+        tool_input = ensure_tool_input(data)
         
         logger.info(f"[APPROVAL GATE]   Tool: {tool_name}")
         
