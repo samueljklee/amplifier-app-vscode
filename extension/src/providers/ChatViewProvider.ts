@@ -23,6 +23,7 @@ import {
     ApprovalRequiredEvent,
     PromptCompleteEvent,
 } from '../client/types';
+import { ConversationHistoryManager, ConversationEntry } from './ConversationHistoryManager';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
@@ -32,20 +33,26 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private _credentialsManager: CredentialsManager;
     private _contextGatherer: ContextGatherer;
     private _approvalHandler: ApprovalHandler;
+    private _historyManager: ConversationHistoryManager;
     private _lastWorkspaceRoot: string | null = null;
     private _sessionStarting: Promise<void> | null = null;
+    private _selectedHistoryId: string | null = null;
+    private _currentProfile: string = 'vscode-simple';
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
         client: AmplifierClient,
         eventStream: EventStreamManager,
-        credentialsManager: CredentialsManager
+        credentialsManager: CredentialsManager,
+        historyManager: ConversationHistoryManager
     ) {
         this._client = client;
         this._eventStream = eventStream;
         this._credentialsManager = credentialsManager;
         this._contextGatherer = new ContextGatherer();
         this._approvalHandler = new ApprovalHandler(client, undefined);
+        this._historyManager = historyManager;
+        this._historyManager.onDidChange(() => this._sendHistoryUpdate());
     }
 
     /**
@@ -82,6 +89,31 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
         // Don't auto-initialize - wait for webview 'ready' message
         console.log('[Amplifier ChatViewProvider] Waiting for webview ready message');
+
+        this._sendHistoryUpdate();
+    }
+
+    /**
+     * Triggered from VS Code commands to start a new chat
+     */
+    public async startNewConversationFromCommand(): Promise<void> {
+        if (!this._view) {
+            return;
+        }
+        await this._handleNewConversationRequest();
+    }
+
+    /**
+     * Trigger history drawer toggle from VS Code command
+     */
+    public toggleHistoryDrawer(forceState?: boolean): void {
+        if (!this._view) {
+            return;
+        }
+        this._postMessage({
+            type: 'toggleHistoryDrawer',
+            forceState
+        });
     }
 
     /**
@@ -131,6 +163,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                 await this._stopSession();
                 break;
             
+            case 'historyNew':
+                await this._handleNewConversationRequest();
+                break;
+
+            case 'historyLoad':
+                await this._handleHistoryLoad(message.sessionId);
+                break;
+
+            case 'historyDelete':
+                await this._handleHistoryDelete(message.sessionId);
+                break;
+
             case 'approvalDecision':
                 await this._approvalHandler.handleApprovalDecision(
                     message.approvalId,
@@ -180,6 +224,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             const config = vscode.workspace.getConfiguration('amplifier');
             const profile = config.get<string>('profile', 'vscode-simple');
             const model = config.get<string>('model', 'claude-sonnet-4-5');
+            this._currentProfile = profile;
 
             // Create session request
             const request: CreateSessionRequest = {
@@ -208,6 +253,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             });
 
             this._lastWorkspaceRoot = gatheredContext.workspace_root;
+            this._historyManager.ensureConversation(this._sessionId, profile);
+            this._historyManager.setActiveSession(this._sessionId);
+            this._selectedHistoryId = this._sessionId;
+            this._sendHistoryUpdate();
 
         } catch (error: any) {
             console.error('[Amplifier ChatViewProvider] Failed to start session:', error);
@@ -235,11 +284,51 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             this._eventStream.unsubscribe();
             this._sessionId = null;
             this._lastWorkspaceRoot = null;
+            this._historyManager.setActiveSession(null);
+            this._selectedHistoryId = null;
 
             this._postMessage({ type: 'sessionStopped' });
         } catch (error: any) {
             console.error('[Amplifier ChatViewProvider] Failed to stop session:', error);
         }
+    }
+
+    private async _handleNewConversationRequest(): Promise<void> {
+        await this._stopSession();
+        this._postMessage({ type: 'clearConversation' });
+        this._sendHistoryUpdate();
+    }
+
+    private async _handleHistoryLoad(sessionId: string): Promise<void> {
+        if (!sessionId) {
+            return;
+        }
+        await this._stopSession();
+        this._selectedHistoryId = sessionId;
+        const conversation = this._historyManager.get(sessionId);
+        if (conversation) {
+            this._sendHistoryConversation(conversation);
+        }
+        this._sendHistoryUpdate();
+    }
+
+    private async _handleHistoryDelete(sessionId: string): Promise<void> {
+        if (!sessionId) {
+            return;
+        }
+
+        if (sessionId === this._sessionId) {
+            await this._stopSession();
+            this._postMessage({ type: 'clearConversation' });
+        }
+
+        if (sessionId === this._selectedHistoryId) {
+            this._selectedHistoryId = null;
+            this._postMessage({ type: 'clearConversation' });
+        }
+
+        this._historyManager.delete(sessionId);
+        this._sendHistoryUpdate();
     }
 
     /**
@@ -265,6 +354,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             }
         }
 
+        if (!this._sessionId) {
+            return;
+        }
+
+        this._selectedHistoryId = this._sessionId;
+        this._historyManager.ensureConversation(this._sessionId, this._currentProfile);
+        const userMessageTimestamp = new Date().toISOString();
+        this._historyManager.appendMessage(this._sessionId, {
+            role: 'user',
+            content: text,
+            timestamp: userMessageTimestamp
+        });
+        this._historyManager.update(this._sessionId, { status: 'processing' });
+
         try {
             console.log('[ChatViewProvider] Gathering fresh context for message...');
 
@@ -278,6 +381,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
         } catch (error: any) {
             console.error('[Amplifier ChatViewProvider] Failed to send message:', error);
+            if (this._sessionId) {
+                this._historyManager.update(this._sessionId, { status: 'error' });
+            }
             
             // Handle 404 - session was lost (server restart, etc.)
             if (error.message?.includes('404')) {
@@ -421,6 +527,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
                         token_usage: data.token_usage
                     }
                 });
+
+                if (this._sessionId && data.response) {
+                    this._historyManager.appendMessage(this._sessionId, {
+                        role: 'assistant',
+                        content: data.response,
+                        timestamp: new Date().toISOString()
+                    });
+                    this._historyManager.update(this._sessionId, { status: 'idle' });
+                }
             },
 
             onError: (error: Error) => {
@@ -493,6 +608,25 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this._view.webview.postMessage(message);
     }
 
+    private _sendHistoryUpdate(): void {
+        if (!this._view) {
+            return;
+        }
+        this._postMessage({
+            type: 'historyUpdate',
+            conversations: this._historyManager.getAll(),
+            activeSessionId: this._sessionId,
+            selectedConversationId: this._selectedHistoryId
+        });
+    }
+
+    private _sendHistoryConversation(conversation: ConversationEntry): void {
+        this._postMessage({
+            type: 'historyConversation',
+            conversation
+        });
+    }
+
     /**
      * Get HTML content for the webview
      */
@@ -558,6 +692,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     <!-- Main chat interface -->
     <div id="chat-interface" class="hidden">
+        <div id="history-drawer" class="history-drawer hidden" aria-hidden="true">
+            <div class="history-drawer-header">
+                <span>Conversation History</span>
+                <button id="history-close" type="button" class="icon-button" aria-label="Close history panel">
+                    <svg viewBox="0 0 16 16" aria-hidden="true">
+                        <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8z"/>
+                    </svg>
+                </button>
+            </div>
+            <div id="history-list" class="history-list" role="list"></div>
+        </div>
+
         <!-- Messages container -->
         <div id="messages" role="log" aria-live="polite" aria-label="Chat messages"></div>
 

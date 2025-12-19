@@ -21,8 +21,20 @@
 
     <!-- Main chat interface -->
     <div id="chat-interface" class="hidden">
+        <div id="history-drawer" class="history-drawer hidden" aria-hidden="true">
+            <div class="history-drawer-header">
+                <span>Conversation History</span>
+                <button id="history-close" class="icon-button" aria-label="Close history panel">
+                    <svg viewBox="0 0 16 16" aria-hidden="true">
+                        <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8z"/>
+                    </svg>
+                </button>
+            </div>
+            <div id="history-list" class="history-list" role="list"></div>
+        </div>
+
         <!-- Messages container -->
-        <div id="messages"></div>
+        <div id="messages" role="log" aria-live="polite" aria-label="Chat messages"></div>
 
         <!-- Thinking indicator -->
         <div id="thinking" class="thinking-indicator hidden">

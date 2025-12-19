@@ -40,6 +40,16 @@
             {
                 "command": "amplifier.improveSelection",
                 "title": "Amplifier: Improve Selection"
+            },
+            {
+                "command": "amplifier.newChat",
+                "title": "New Chat",
+                "category": "Amplifier"
+            },
+            {
+                "command": "amplifier.toggleHistory",
+                "title": "History",
+                "category": "Amplifier"
             }
         ],
         "viewsContainers": {
@@ -57,6 +67,22 @@
                     "type": "webview",
                     "id": "amplifier.chatView",
                     "name": "Chat"
+                }
+            ]
+        },
+        "menus": {
+            "view/title": [
+                {
+                    "command": "amplifier.newChat",
+                    "when": "view == amplifier.chatView",
+                    "group": "navigation@1",
+                    "icon": "$(add)"
+                },
+                {
+                    "command": "amplifier.toggleHistory",
+                    "when": "view == amplifier.chatView",
+                    "group": "navigation@2",
+                    "icon": "$(history)"
                 }
             ]
         },

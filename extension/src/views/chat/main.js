@@ -257,6 +257,9 @@ const elements = {
     welcomeScreen: document.getElementById('welcome-screen'),
     chatInterface: document.getElementById('chat-interface'),
     messages: document.getElementById('messages'),
+    historyDrawer: document.getElementById('history-drawer'),
+    historyList: document.getElementById('history-list'),
+    historyClose: document.getElementById('history-close'),
     promptInput: document.getElementById('prompt-input'),
     sendBtn: document.getElementById('send-btn'),
     setApiKeyBtn: document.getElementById('set-api-key-btn'),
@@ -277,6 +280,12 @@ let isStreaming = false;
 let currentMessageElement = null;
 let totalTokens = { input: 0, output: 0 };
 let errorDismissTimer = null;
+const historyState = {
+    conversations: [],
+    activeId: null,
+    selectedId: null
+};
+let historyDrawerOpen = false;
 
 // Event Listeners
 elements.sendBtn.addEventListener('click', sendMessage);
@@ -311,6 +320,36 @@ elements.setApiKeyBtn.addEventListener('click', () => {
 });
 
 elements.errorDismiss.addEventListener('click', hideError);
+
+if (elements.historyClose) {
+    elements.historyClose.addEventListener('click', (event) => {
+        event.preventDefault();
+        toggleHistoryDrawer(false);
+    });
+}
+
+document.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) {
+        return;
+    }
+    const closeButton = target.closest('#history-close');
+    if (closeButton) {
+        event.preventDefault();
+        toggleHistoryDrawer(false);
+    }
+});
+
+document.addEventListener('keydown', (event) => {
+    if (!historyDrawerOpen) {
+        return;
+    }
+    if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleHistoryDrawer(false);
+    }
+});
 
 // Send ready message when script loads
 console.log('[Webview] Script loaded, sending ready message');
@@ -368,6 +407,23 @@ window.addEventListener('message', (event) => {
         case 'promptComplete':
             handlePromptComplete(message);
             break;
+        case 'historyUpdate':
+            historyState.conversations = message.conversations || [];
+            historyState.activeId = message.activeSessionId || null;
+            historyState.selectedId = message.selectedConversationId ?? historyState.selectedId;
+            renderHistoryList();
+            break;
+        case 'historyConversation':
+            historyState.selectedId = message.conversation?.sessionId || null;
+            renderHistoryList();
+            loadConversationFromHistory(message.conversation);
+            break;
+        case 'clearConversation':
+            clearMessages();
+            break;
+        case 'toggleHistoryDrawer':
+            toggleHistoryDrawer(message.forceState);
+            break;
         case 'showApproval':
             approvalBar.show({
                 prompt: message.prompt,
@@ -424,7 +480,9 @@ function addMessage(role, content, timestamp = null) {
 
     const timestampDiv = document.createElement('span');
     timestampDiv.className = 'message-timestamp';
-    timestampDiv.textContent = timestamp || formatTime(new Date());
+    const tsDate = timestamp ? new Date(timestamp) : new Date();
+    timestampDiv.textContent = formatTime(tsDate);
+    timestampDiv.title = tsDate.toLocaleString();
 
     headerDiv.appendChild(roleDiv);
     headerDiv.appendChild(timestampDiv);
@@ -920,6 +978,120 @@ function showCopySuccess(button) {
         button.classList.remove('copy-button--success');
         button.setAttribute('aria-label', originalLabel);
     }, 1500);
+}
+
+function clearMessages() {
+    if (!elements.messages) return;
+    elements.messages.innerHTML = '';
+    currentMessageElement = null;
+    isStreaming = false;
+}
+
+function toggleHistoryDrawer(forceState) {
+    if (!elements.historyDrawer) return;
+    const shouldOpen = typeof forceState === 'boolean' ? forceState : !historyDrawerOpen;
+    historyDrawerOpen = shouldOpen;
+    elements.historyDrawer.classList.toggle('hidden', !shouldOpen);
+    elements.historyDrawer.classList.toggle('open', shouldOpen);
+    elements.historyDrawer.setAttribute('aria-hidden', (!shouldOpen).toString());
+}
+
+function renderHistoryList() {
+    if (!elements.historyList) return;
+    elements.historyList.innerHTML = '';
+
+    if (!historyState.conversations.length) {
+        const empty = document.createElement('div');
+        empty.className = 'history-empty';
+        empty.textContent = 'No conversations yet.';
+        elements.historyList.appendChild(empty);
+        return;
+    }
+
+    historyState.conversations.forEach(conv => {
+        const item = document.createElement('div');
+        item.className = 'history-entry';
+        item.setAttribute('role', 'listitem');
+
+        if (conv.sessionId === historyState.activeId) {
+            item.classList.add('active');
+        }
+        if (conv.sessionId === historyState.selectedId) {
+            item.classList.add('selected');
+        }
+
+        const title = document.createElement('div');
+        title.className = 'history-entry-title';
+        title.textContent = conv.title || 'Conversation';
+
+        const meta = document.createElement('div');
+        meta.className = 'history-entry-meta';
+        meta.innerHTML = `
+            <span>${formatRelativeTimestamp(getConversationTimestamp(conv))}</span>
+            <span class="history-entry-status status-${conv.status}">${conv.status}</span>
+        `;
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.type = 'button';
+        deleteBtn.className = 'icon-button history-entry-delete';
+        deleteBtn.setAttribute('aria-label', 'Delete conversation');
+        deleteBtn.innerHTML = '&times;';
+        deleteBtn.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            item.classList.add('history-entry-removing');
+            vscode.postMessage({ type: 'historyDelete', sessionId: conv.sessionId });
+        });
+
+        item.appendChild(title);
+        item.appendChild(meta);
+        item.appendChild(deleteBtn);
+
+        item.addEventListener('click', () => {
+            toggleHistoryDrawer(false);
+            vscode.postMessage({ type: 'historyLoad', sessionId: conv.sessionId });
+        });
+
+        elements.historyList.appendChild(item);
+    });
+}
+
+function loadConversationFromHistory(conversation) {
+    if (!conversation) return;
+    clearMessages();
+    toggleHistoryDrawer(false);
+    conversation.messages.forEach(message => {
+        addMessage(message.role, message.content, message.timestamp);
+    });
+    elements.messages.scrollTop = elements.messages.scrollHeight;
+}
+
+function formatRelativeTimestamp(timestamp) {
+    if (!timestamp) return '';
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) {
+        return '';
+    }
+    const diff = Date.now() - date.getTime();
+    const mins = Math.floor(diff / 60000);
+    const hours = Math.floor(mins / 60);
+    const days = Math.floor(hours / 24);
+
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    if (hours < 24) return `${hours}h ago`;
+    return `${days}d ago`;
+}
+
+function getConversationTimestamp(conversation) {
+    if (!conversation) return '';
+    if (conversation.lastActivity) return conversation.lastActivity;
+    if (conversation.createdAt) return conversation.createdAt;
+    if (conversation.messages?.length) {
+        const last = conversation.messages[conversation.messages.length - 1];
+        return last?.timestamp || '';
+    }
+    return '';
 }
 
 // Run initialization

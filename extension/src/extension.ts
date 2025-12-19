@@ -8,12 +8,14 @@ import { CredentialsManager } from './services/CredentialsManager';
 
 // Providers
 import { ChatViewProvider } from './providers/ChatViewProvider';
+import { ConversationHistoryManager } from './providers/ConversationHistoryManager';
 
 let client: AmplifierClient;
 let eventStream: EventStreamManager;
 let serverManager: ServerManager;
 let credentialsManager: CredentialsManager;
 let chatViewProvider: ChatViewProvider;
+let historyManager: ConversationHistoryManager;
 let statusBar: vscode.StatusBarItem;
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -29,12 +31,15 @@ export async function activate(context: vscode.ExtensionContext) {
     client = new AmplifierClient('http://127.0.0.1:8765');
     eventStream = new EventStreamManager('http://127.0.0.1:8765');
 
+    historyManager = new ConversationHistoryManager(context);
+
     // Register Chat View Provider
     chatViewProvider = new ChatViewProvider(
         context.extensionUri,
         client,
         eventStream,
-        credentialsManager
+        credentialsManager,
+        historyManager
     );
     
     context.subscriptions.push(
@@ -61,7 +66,15 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('amplifier.showChat', () => {
             vscode.commands.executeCommand('amplifier.chatView.focus');
         }),
-        vscode.commands.registerCommand('amplifier.setApiKey', () => credentialsManager.promptForApiKey())
+        vscode.commands.registerCommand('amplifier.setApiKey', () => credentialsManager.promptForApiKey()),
+        vscode.commands.registerCommand('amplifier.newChat', async () => {
+            await vscode.commands.executeCommand('amplifier.chatView.focus');
+            await chatViewProvider?.startNewConversationFromCommand();
+        }),
+        vscode.commands.registerCommand('amplifier.toggleHistory', async () => {
+            await vscode.commands.executeCommand('amplifier.chatView.focus');
+            chatViewProvider?.toggleHistoryDrawer();
+        })
     );
 
     // Initialize asynchronously (non-blocking) - don't await
