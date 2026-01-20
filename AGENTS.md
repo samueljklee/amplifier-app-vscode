@@ -336,6 +336,57 @@ For detailed architecture, see `docs/ARCHITECTURE.md`. Quick summary:
 
 ---
 
+### Phase 6: Model & Workflow Enhancements (Weeks 11-12)
+
+#### P6.1 - Model Selection (Session-level)
+| ID | Task | Dependencies | Agent | Status |
+|----|------|--------------|-------|--------|
+| P6.1.1 | Expose model allowlist/metadata from server (extend `/info` or new endpoint; mark availability) | P2.3.*, P2.4.* | modular-builder | ☐ |
+| P6.1.2 | Add session model selection in AmplifierClient/server payloads (persist default per profile/workspace) | P6.1.1 | modular-builder | ☐ |
+| P6.1.3 | Add status bar dropdown for per-session model switch (creates new session on change) | P6.1.2, P2.6.* | modular-builder | ☐ |
+| P6.1.4 | Display active model in chat/status and handle unavailable model errors gracefully | P6.1.3 | modular-builder | ☐ |
+| P6.1.5 | Test session-level model switching (new session, allowlist enforcement, error UX) | P6.1.3 | bug-hunter | ☐ |
+
+#### P6.2 - Model Overrides (Per-message, Future)
+| ID | Task | Dependencies | Agent | Status |
+|----|------|--------------|-------|--------|
+| P6.2.1 | Design per-message model override payload + audit trail (UI + SSE event shape) | P6.1.* | modular-builder | ☐ |
+| P6.2.2 | Add per-message model param in submitPrompt() + server routing/validation | P6.2.1 | modular-builder | ☐ |
+| P6.2.3 | UX: inline override picker/quick command with active model indicator per message | P6.2.1 | modular-builder | ☐ |
+| P6.2.4 | Tests for mixed-model history, validation, and error surfacing | P6.2.2 | bug-hunter | ☐ |
+
+#### P6.3 - Orchestrator V2 (Dev-centric)
+| ID | Task | Dependencies | Agent | Status |
+|----|------|--------------|-------|--------|
+| P6.3.1 | Design dev-focused orchestrator: diff-aware planning, static-analysis/test gating, rollback plan, tool scoring | P2.4.*, P2.3.* | modular-builder | ☐ |
+| P6.3.2 | Implement policy hooks (risk scoring, tool limits, approval integration, safe-write guards) | P6.3.1, P3.* | modular-builder | ☐ |
+| P6.3.3 | Add observability stream: per-step trace IDs, timings, tool attempts/failures via SSE | P6.3.1 | modular-builder | ☐ |
+| P6.3.4 | Add dev workflow shortcuts (e.g., diagnostics→quick fix plan, patch-with-tests path) | P6.3.2 | modular-builder | ☐ |
+| P6.3.5 | Tests for policy enforcement, tracing, and fallback behaviors | P6.3.* | bug-hunter | ☐ |
+
+#### P6.4 - Context Manager V2 + Reasoning Bank
+| ID | Task | Dependencies | Agent | Status |
+|----|------|--------------|-------|--------|
+| P6.4.0 | Design spec for context manager v2 + reasoning bank (providers, budgets, storage, UX) | P2.7.*, P6.3.1 | modular-builder | ☐ |
+| P6.4.1 | Design pluggable context providers (git diff, recent edits, tests/results, docs, logs) with budgets/excludes | P2.7.* | modular-builder | ☐ |
+| P6.4.2 | Implement provider scoring/truncation + “light/full/custom” context profiles | P6.4.1 | modular-builder | ☐ |
+| P6.4.3 | Add reasoning bank (persisted scratchpad of deductions/tool outcomes) and orchestrator read/write hooks | P6.4.1, P6.3.* | modular-builder | ☐ |
+| P6.4.4 | Surface context + reasoning bank summary to chat for transparency/pinning | P6.4.3 | modular-builder | ☐ |
+| P6.4.5 | Tests for provider selection, budget enforcement, and reasoning bank lifecycle | P6.4.* | bug-hunter | ☐ |
+
+---
+
+### Phase 7: World Readiness (Distribution Prep)
+
+#### P7.1 - VSIX Sharing & External Install
+| ID | Task | Dependencies | Agent | Status |
+|----|------|--------------|-------|--------|
+| P7.1.1 | Document VSIX build/share flow (`vsce package`, artifact path) | P5.5.1 | modular-builder | ☐ |
+| P7.1.2 | Document recipient install/config (Install from VSIX, Python/uv prereqs, API key setup) | P7.1.1 | modular-builder | ☐ |
+| P7.1.3 | External install smoke test on clean environment using VSIX | P7.1.1 | bug-hunter | ☐ |
+
+---
+
 ## Active Tasks
 
 <!-- Agents: Claim tasks here before starting work -->
