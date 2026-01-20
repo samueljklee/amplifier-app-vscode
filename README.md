@@ -130,85 +130,36 @@ Select a profile via settings or the status bar.
 
 ## Development
 
-See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for complete development setup and implementation details.
-
 ### Prerequisites
 
 - [uv](https://docs.astral.sh/uv/) (Python package manager)
 - Node.js 18+
 - VS Code
 
-### Quick Setup
+### Setup & Run
 
 ```bash
 # Clone the repository
 git clone https://github.com/microsoft/amplifier-app-vscode.git
 cd amplifier-app-vscode
 
-# Set up the Python backend server
-cd server
-uv sync
-cd ..
-
-# Set up the VS Code extension
-cd extension
-npm install
-cd ..
-```
-
-### Running the Server (standalone)
-
-```bash
 # Set your API key
 export ANTHROPIC_API_KEY="your-key-here"
 
-# Start the server
-cd server
-uv run python -m amplifier_vscode_server
-
-# Server runs at http://localhost:8765
-# Health check: curl http://localhost:8765/health
-```
-
-### Running in VS Code (Development)
-
-1. Open the `amplifier-app-vscode` folder in VS Code
-2. Set your API key in the terminal or VS Code settings
-3. Press **F5** to launch the Extension Development Host
-4. The server starts automatically with the extension
-
-### Easy Run Script
-
-```bash
-# Launch VS Code with the extension (development mode)
+# Launch VS Code with the extension
 ./scripts/run.sh
-
-# Build and install the VSIX to your VS Code
-./scripts/run.sh --install
-
-# Start only the backend server
-./scripts/run.sh --server
-
-# Build the VSIX without installing
-./scripts/run.sh --build
 ```
 
-### Manual Setup
+### Run Script Options
 
-```bash
-# From the repo root - sets up everything
-cd server && uv sync && cd ../extension && npm install && cd ..
+| Command | Description |
+|---------|-------------|
+| `./scripts/run.sh` | Launch VS Code with extension (dev mode) |
+| `./scripts/run.sh --install` | Build VSIX and install to VS Code |
+| `./scripts/run.sh --server` | Start only the backend server |
+| `./scripts/run.sh --build` | Build VSIX without installing |
 
-# Run server standalone (in one terminal)
-cd server && ANTHROPIC_API_KEY="your-key" uv run python -m amplifier_vscode_server
-```
-
-### Install Pre-built VSIX
-
-```bash
-# Build and install in one command
-cd extension && npm run vsix && code --install-extension ../amplifier-vscode.vsix
-```
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for detailed development documentation.
 
 ## Documentation
 
