@@ -464,10 +464,7 @@ body {
 .message.thinking-message {
     background-color: var(--vscode-editorInlayHint-background, var(--vscode-editorInfo-background));
     border-left-color: var(--vscode-editorInfo-border);
-    border-left-width: 2px;
-    padding-left: 16px;
-    margin-left: 4px;
-    border-radius: 6px;
+    border-radius: 0;
 }
 
 .message.tool-message {
