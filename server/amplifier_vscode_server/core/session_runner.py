@@ -7,9 +7,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from amplifier_core import AmplifierSession
-from amplifier_profiles import ProfileLoader, compile_profile_to_mount_plan
-from amplifier_collections import CollectionResolver
-from amplifier_module_resolution import StandardModuleSourceResolver
+from amplifier_foundation import load_bundle
 
 from .ux_systems import VSCodeApprovalSystem, VSCodeDisplaySystem
 from ..hooks import (
@@ -21,41 +19,38 @@ from ..hooks import (
 logger = logging.getLogger(__name__)
 
 
-def _get_collection_resolver() -> tuple[CollectionResolver | None, list[Path]]:
-    """Get collection resolver and profile search paths.
+def _get_bundle_path(bundle_name: str) -> str:
+    """Get the bundle path for a bundle name.
     
+    Args:
+        bundle_name: Name of the bundle (alphanumeric, hyphens, underscores only)
+        
     Returns:
-        Tuple of (collection_resolver, search_paths)
+        Bundle URI (file:// path to the bundle markdown)
+        
+    Raises:
+        ValueError: If bundle_name contains invalid characters
     """
-    search_paths = [
-        Path.home() / ".amplifier" / "profiles",
-        Path(".amplifier") / "profiles",
-    ]
+    # Security: Validate bundle name to prevent path traversal
+    # Only allow alphanumeric, hyphens, and underscores
+    import re
+    if not re.match(r'^[a-zA-Z0-9_-]+$', bundle_name):
+        raise ValueError(f"Invalid bundle name: {bundle_name}. Only alphanumeric, hyphens, and underscores allowed.")
     
-    # Add collection paths (including local vscode collection)
-    collection_search_paths = [
-        # Local vscode collection (bundled with extension) - FIRST priority
-        Path(__file__).parent.parent / "data" / "collections",
-        # User collections
-        Path.home() / ".amplifier" / "collections",
-        Path.home() / ".local" / "share" / "amplifier" / "collections",
-    ]
+    # Check local vscode bundles first
+    local_bundles = Path(__file__).parent.parent / "data" / "collections" / "vscode" / "bundles"
+    local_path = local_bundles / f"{bundle_name}.md"
+    if local_path.exists():
+        return f"file://{local_path}"
     
-    # Initialize resolver with collection search paths
-    try:
-        resolver = CollectionResolver(search_paths=collection_search_paths)
-        
-        # Add profiles directory from each discovered collection
-        # list_collections() returns tuples of (collection_name, collection_path)
-        for collection_name, collection_path in resolver.list_collections():
-            profiles_dir = collection_path / "profiles"
-            if profiles_dir.exists():
-                search_paths.append(profiles_dir)
-        
-        return resolver, search_paths
-    except Exception:
-        # If collection resolver fails, just use local paths
-        return None, search_paths
+    # Check user bundles
+    user_bundles = Path.home() / ".amplifier" / "bundles"
+    user_path = user_bundles / f"{bundle_name}.md"
+    if user_path.exists():
+        return f"file://{user_path}"
+    
+    # Fall back to well-known bundles (foundation will resolve)
+    return bundle_name
 
 
 class SessionRunner:
@@ -105,208 +100,139 @@ class SessionRunner:
         self._hook_unregisters: list[callable] = []
     
     async def start(self) -> str:
-        """Initialize the session with ProfileLoader and amplifier-core.
+        """Initialize the session using modern foundation bundle pattern.
         
         Returns:
             session_id: The session identifier
         """
         try:
-            logger.info(f"[SESSION START] Starting session {self.session_id} with profile '{self.profile_name}'")
+            logger.info(f"[SESSION START] Starting session {self.session_id} with bundle '{self.profile_name}'")
             logger.debug(f"[SESSION START] Credentials provided: {bool(self.credentials)}")
             logger.debug(f"[SESSION START] Workspace context provided: {bool(self.workspace_context)}")
             
-            # Load profile using discovered search paths and collection resolver
-            resolver, search_paths = _get_collection_resolver()
-            logger.debug(f"[SESSION START] Profile search paths: {len(search_paths)} paths")
+            # Get bundle path
+            bundle_uri = _get_bundle_path(self.profile_name)
+            logger.info(f"[SESSION START] Loading bundle from: {bundle_uri}")
             
-            loader = ProfileLoader(
-                search_paths=search_paths,
-                collection_resolver=resolver  # Required for resolving collection:path references
-            )
+            # Load bundle using foundation
+            bundle = await load_bundle(bundle_uri)
+            logger.info(f"[SESSION START] Bundle loaded: {bundle.name} v{bundle.version}")
             
-            logger.info(f"[SESSION START] Loading profile '{self.profile_name}'...")
-            profile = loader.load_profile(self.profile_name)
-            logger.info(f"[SESSION START] Profile loaded successfully")
+            # Inject credentials into bundle config before prepare
+            if self.credentials:
+                logger.info(f"[SESSION START] Injecting credentials: {list(self.credentials.keys())}")
+                self._inject_credentials_into_bundle(bundle)
             
-            # Compile to mount plan
-            logger.debug(f"[SESSION START] Compiling profile to mount plan...")
-            mount_plan = compile_profile_to_mount_plan(profile)
-            logger.debug(f"[SESSION START] Mount plan compiled. Providers: {len(mount_plan.get('providers', []))}")
+            # Inject workspace config into bundle
+            workspace_root = self.workspace_context.get("workspace_root")
+            if workspace_root:
+                logger.info(f"[SESSION START] Injecting workspace root: {workspace_root}")
+                self._inject_workspace_into_bundle(bundle, workspace_root)
             
-            # Inject credentials into provider config
-            if self.credentials and "providers" in mount_plan:
-                logger.info(f"[SESSION START] 🔑 Injecting credentials into {len(mount_plan['providers'])} providers")
-                logger.info(f"[SESSION START] 🔑 Credentials keys available: {list(self.credentials.keys())}")
-                
-                for provider in mount_plan["providers"]:
-                    logger.info(f"[SESSION START] 🔑 Processing provider module: {provider.get('module')}")
-                    
-                    if "config" not in provider:
-                        provider["config"] = {}
-                    
-                    # Inject API keys
-                    if provider["module"] == "provider-anthropic":
-                        if "anthropic_api_key" in self.credentials:
-                            provider["config"]["api_key"] = self.credentials["anthropic_api_key"]
-                            logger.info(f"[SESSION START] ✅ Injected Anthropic API key into provider config")
-                            logger.debug(f"[SESSION START] 🔑 Provider config keys: {list(provider['config'].keys())}")
-                        else:
-                            logger.warning(f"[SESSION START] ❌ No 'anthropic_api_key' found in credentials dict")
-                            logger.warning(f"[SESSION START] 🔍 Available credential keys: {list(self.credentials.keys())}")
-            else:
-                logger.warning(f"[SESSION START] ⚠️  No credentials ({bool(self.credentials)}) or providers ({bool(mount_plan.get('providers'))}) to inject into")
+            # Prepare bundle (downloads modules, installs deps)
+            logger.info(f"[SESSION START] Preparing bundle...")
+            prepared = await bundle.prepare(install_deps=True)
+            logger.info(f"[SESSION START] Bundle prepared successfully")
             
-            # Inject workspace directory into tool config
-            if self.workspace_context.get("workspace_root") and "tools" in mount_plan:
-                workspace_root = self.workspace_context["workspace_root"]
-                logger.info(f"[SESSION START] 📁 Injecting workspace restrictions into {len(mount_plan['tools'])} tools")
-                logger.info(f"[SESSION START] 📁 Workspace root to inject: {workspace_root}")
-                logger.info(f"[SESSION START] 📁 This will restrict tool operations to: {workspace_root}")
-                
-                injected_count = 0
-                for tool in mount_plan["tools"]:
-                    tool_module = tool.get('module', 'unknown')
-                    logger.info(f"[SESSION START]   📦 Processing tool: {tool_module}")
-                    
-                    if "config" not in tool:
-                        tool["config"] = {}
-                    
-                    # Inject appropriate workspace restriction parameters per tool
-                    if tool_module == "tool-bash":
-                        # tool-bash uses working_dir (single directory)
-                        tool["config"]["working_dir"] = workspace_root
-                        injected_count += 1
-                        logger.info(f"[SESSION START]   ✅ Injected working_dir: {workspace_root}")
-                    elif tool_module == "tool-filesystem":
-                        # tool-filesystem uses allowed_write_paths (list of allowed dirs)
-                        tool["config"]["allowed_write_paths"] = [workspace_root]
-                        # Also set working_dir for read operations
-                        tool["config"]["working_dir"] = workspace_root
-                        injected_count += 1
-                        logger.info(f"[SESSION START]   ✅ Injected allowed_write_paths: [{workspace_root}]")
-                        logger.info(f"[SESSION START]   ✅ Injected working_dir: {workspace_root}")
-                    elif tool_module == "tool-search":
-                        # tool-search uses working_dir (single directory)
-                        tool["config"]["working_dir"] = workspace_root
-                        injected_count += 1
-                        logger.info(f"[SESSION START]   ✅ Injected working_dir: {workspace_root}")
-                    else:
-                        logger.debug(f"[SESSION START]   ⏭️  Skipped (not a filesystem tool)")
-                    
-                    if tool_module in ["tool-bash", "tool-filesystem", "tool-search"]:
-                        logger.info(f"[SESSION START]   ✅ Tool config now has: {list(tool['config'].keys())}")
-                
-                logger.info(f"[SESSION START] 📁 ✨ Successfully configured {injected_count} tools")
-            else:
-                logger.warning(f"[SESSION START] ⚠️  Cannot inject workspace_dir:")
-                logger.warning(f"[SESSION START]     - Has workspace_root: {bool(self.workspace_context.get('workspace_root'))}")
-                logger.warning(f"[SESSION START]     - Has tools: {bool(mount_plan.get('tools'))}")
-                if self.workspace_context.get('workspace_root'):
-                    logger.warning(f"[SESSION START]     - Workspace root value: {self.workspace_context['workspace_root']}")
-                if mount_plan.get('tools'):
-                    logger.warning(f"[SESSION START]     - Tools: {[t.get('module') for t in mount_plan.get('tools', [])]}")
-            
-            # Inject workspace context into system instruction
-            if self.workspace_context:
-                mount_plan = self._inject_workspace_context(mount_plan)
-                logger.debug(f"[SESSION START] Workspace context injected")
-            
-            # Create amplifier-core session
-            logger.info(f"[SESSION START] Creating AmplifierSession...")
-            self.session = AmplifierSession(
-                config=mount_plan,
+            # Create session from prepared bundle
+            logger.info(f"[SESSION START] Creating session from prepared bundle...")
+            self.session = await prepared.create_session(
                 session_id=self.session_id,
                 approval_system=self.approval_system,
                 display_system=self.display_system,
             )
-            logger.info(f"[SESSION START] AmplifierSession created")
+            logger.info(f"[SESSION START] Session created")
             
             # Store reference to session_runner for hooks to access
             self.session._session_runner = self
-            logger.debug(f"[SESSION START] Session runner reference stored for hook access")
-            logger.info(f"[SESSION START] 🔒 always_allow_tools flag: {self.always_allow_tools}")
+            logger.info(f"[SESSION START] always_allow_tools flag: {self.always_allow_tools}")
             
             # Validation summary
             logger.info(f"[SESSION START] ═══════════════════════════════════════")
-            logger.info(f"[SESSION START] 🔍 Workspace Directory Validation:")
+            logger.info(f"[SESSION START] Workspace Directory Validation:")
             logger.info(f"[SESSION START]   Server CWD: {Path.cwd()}")
-            logger.info(f"[SESSION START]   VSCode Workspace: {self.workspace_context.get('workspace_root', '(none)')}")
-            logger.info(f"[SESSION START]   Tools will operate in: {self.workspace_context.get('workspace_root', 'UNRESTRICTED!')}")
+            logger.info(f"[SESSION START]   VSCode Workspace: {workspace_root or '(none)'}")
+            logger.info(f"[SESSION START]   Tools will operate in: {workspace_root or 'UNRESTRICTED!'}")
             logger.info(f"[SESSION START] ═══════════════════════════════════════")
             
-            # Mount module source resolver BEFORE initialization
-            # This enables git-based module loading from profile sources
-            logger.info(f"[SESSION START] Mounting module source resolver...")
-            resolver = StandardModuleSourceResolver(
-                workspace_dir=Path(self.workspace_context.get("workspace_root")) if self.workspace_context.get("workspace_root") else None,
-            )
-            
-            # Create a mount function for the resolver
-            async def mount_resolver(coordinator):
-                await coordinator.mount("module-source-resolver", resolver, name="standard")
-                return None  # No cleanup needed
-            
-            # Mount the resolver
-            await mount_resolver(self.session.coordinator)
-            logger.info(f"[SESSION START] Module source resolver mounted")
-            
-            # Register streaming bridge hooks BEFORE initialization
-            # This ensures hooks are active when orchestrator starts emitting events
-            logger.info(f"[SESSION START] About to register streaming bridge hooks for session {self.session_id}")
+            # Register streaming bridge hooks
+            logger.info(f"[SESSION START] Registering streaming bridge hooks...")
             self._hook_unregisters = register_streaming_hooks(self.session.coordinator)
-            logger.info(f"[SESSION START] Streaming bridge hooks registered: {len(self._hook_unregisters)} hooks")
+            logger.info(f"[SESSION START] Streaming hooks registered: {len(self._hook_unregisters)}")
             
-            # Register workspace sandbox hook to enforce working_dir on every tool invocation
-            workspace_root = self.workspace_context.get("workspace_root")
+            # Register workspace sandbox hook
             if workspace_root:
-                logger.info(f"[SESSION START] Registering workspace sandbox hook for root: {workspace_root}")
+                logger.info(f"[SESSION START] Registering workspace sandbox hook...")
                 sandbox_unregister = register_workspace_hook(
                     self.session.coordinator,
                     workspace_root,
                 )
                 self._hook_unregisters.append(sandbox_unregister)
-            else:
-                logger.warning("[SESSION START] Workspace root missing, skipping sandbox hook registration")
             
             # Register approval gate hook
-            # This hook intercepts tool:pre events and returns action="ask_user" for destructive tools
             logger.info(f"[SESSION START] Registering approval gate hook...")
             approval_unregister = register_approval_hook(self.session.coordinator)
             self._hook_unregisters.append(approval_unregister)
-            logger.info(f"[SESSION START] Approval gate hook registered")
-            
-            # Verify hooks were registered
-            hooks = self.session.coordinator.hooks
-            all_handlers = hooks.list_handlers()
-            vscode_handlers = {k: v for k, v in all_handlers.items() if any('vscode' in str(n).lower() for n in v)}
-            logger.info(f"[SESSION START] VSCode hooks active: {list(vscode_handlers.keys())}")
-            
-            # Initialize the session (now modules can be loaded from git)
-            logger.info(f"[SESSION START] Initializing session (loading modules)...")
-            await self.session.initialize()
-            logger.info(f"[SESSION START] Session initialized successfully!")
             
             # Verify providers were mounted
             providers = self.session.coordinator.get("providers")
             logger.info(f"[SESSION START] Providers mounted: {len(providers) if providers else 0}")
             if not providers:
-                logger.error(f"[SESSION START] ❌ NO PROVIDERS MOUNTED! This will cause errors.")
+                logger.error(f"[SESSION START] NO PROVIDERS MOUNTED! This will cause errors.")
             
             self.status = "idle"
             self.last_activity = datetime.now()
             
-            logger.info(f"[SESSION START] ✅ Session {self.session_id} ready with status={self.status}")
+            logger.info(f"[SESSION START] Session {self.session_id} ready")
             return self.session_id
             
         except Exception as e:
-            logger.error(f"[SESSION START] ❌ Session initialization failed: {e}")
-            logger.error(f"[SESSION START] Error type: {type(e).__name__}")
+            logger.error(f"[SESSION START] Session initialization failed: {e}")
             import traceback
             logger.error(f"[SESSION START] Traceback:\n{traceback.format_exc()}")
             
             self.status = "error"
             await self._emit_event("error", {"error": str(e)})
             raise
+    
+    def _inject_credentials_into_bundle(self, bundle) -> None:
+        """Inject API credentials into bundle provider configs."""
+        providers = getattr(bundle, 'providers', [])
+        if not providers:
+            return
+        
+        for provider in providers:
+            module_id = provider.get('module', '')
+            if 'config' not in provider:
+                provider['config'] = {}
+            
+            # Map credential keys to provider config
+            if module_id == 'provider-anthropic' and 'anthropic_api_key' in self.credentials:
+                provider['config']['api_key'] = self.credentials['anthropic_api_key']
+                logger.info(f"[CREDENTIALS] Injected Anthropic API key")
+            elif module_id == 'provider-openai' and 'openai_api_key' in self.credentials:
+                provider['config']['api_key'] = self.credentials['openai_api_key']
+                logger.info(f"[CREDENTIALS] Injected OpenAI API key")
+    
+    def _inject_workspace_into_bundle(self, bundle, workspace_root: str) -> None:
+        """Inject workspace directory into bundle tool configs."""
+        tools = getattr(bundle, 'tools', [])
+        if not tools:
+            return
+        
+        for tool in tools:
+            module_id = tool.get('module', '')
+            if 'config' not in tool:
+                tool['config'] = {}
+            
+            # Inject workspace restrictions per tool type
+            if module_id == 'tool-bash':
+                tool['config']['working_dir'] = workspace_root
+            elif module_id == 'tool-filesystem':
+                tool['config']['allowed_write_paths'] = [workspace_root]
+                tool['config']['working_dir'] = workspace_root
+            elif module_id == 'tool-search':
+                tool['config']['working_dir'] = workspace_root
     
     async def prompt(self, prompt: str, context_update: dict[str, Any] | None = None) -> None:
         """Submit a prompt to the session.

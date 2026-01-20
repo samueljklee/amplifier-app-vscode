@@ -1,13 +1,15 @@
 ---
-profile:
+bundle:
   name: vscode-simple
   version: 1.0.0
-  description: Minimal working profile for VS Code testing
+  description: Minimal working profile for VS Code
 
 session:
   orchestrator:
     module: loop-streaming
     source: git+https://github.com/microsoft/amplifier-module-loop-streaming@main
+    config:
+      extended_thinking: true
   
   context:
     module: context-simple
@@ -16,6 +18,9 @@ session:
 providers:
   - module: provider-anthropic
     source: git+https://github.com/microsoft/amplifier-module-provider-anthropic@main
+    config:
+      model: claude-sonnet-4-20250514
+      extended_thinking: true
 
 tools:
   - module: tool-bash
@@ -24,4 +29,4 @@ tools:
     source: git+https://github.com/microsoft/amplifier-module-tool-filesystem@main
 ---
 
-You are a helpful AI assistant.
+You are a helpful AI assistant running in VS Code.

@@ -1,52 +1,91 @@
-"""Profile management routes."""
+"""Bundle management routes."""
 
+import re
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
 
 from ..models import ProfileListResponse, ProfileSummary, ProfileDetail
-from amplifier_profiles import ProfileLoader
 
 router = APIRouter()
 
-# Initialize profile loader with default search paths
-_profile_loader: ProfileLoader | None = None
+# Security: Pattern for valid bundle names
+VALID_BUNDLE_NAME = re.compile(r'^[a-zA-Z0-9_-]+$')
 
 
-def _get_profile_loader() -> ProfileLoader:
-    """Get or create profile loader."""
-    global _profile_loader
-    if _profile_loader is None:
-        search_paths = [
-            Path.home() / ".amplifier" / "profiles",
-            Path(".amplifier") / "profiles",
-        ]
-        _profile_loader = ProfileLoader(search_paths=search_paths)
-    return _profile_loader
+def _get_local_bundles() -> list[dict]:
+    """Get list of locally available bundles."""
+    bundles = []
+    
+    # Local vscode bundles
+    local_path = Path(__file__).parent.parent / "data" / "collections" / "vscode" / "bundles"
+    if local_path.exists():
+        for f in local_path.glob("*.md"):
+            # Security: Only include files with valid names
+            if VALID_BUNDLE_NAME.match(f.stem):
+                bundles.append({
+                    "name": f.stem,
+                    "collection": "vscode",
+                    "path": str(f),
+                })
+    
+    # User bundles
+    user_path = Path.home() / ".amplifier" / "bundles"
+    if user_path.exists():
+        for f in user_path.glob("*.md"):
+            # Security: Only include files with valid names
+            if VALID_BUNDLE_NAME.match(f.stem):
+                bundles.append({
+                    "name": f.stem,
+                    "collection": "user",
+                    "path": str(f),
+                })
+    
+    return bundles
+
+
+def _parse_bundle_frontmatter(path: Path) -> dict:
+    """Parse bundle frontmatter from markdown file."""
+    import yaml
+    
+    content = path.read_text()
+    if not content.startswith("---"):
+        return {}
+    
+    # Find end of frontmatter
+    end = content.find("---", 3)
+    if end == -1:
+        return {}
+    
+    frontmatter = content[3:end].strip()
+    try:
+        return yaml.safe_load(frontmatter) or {}
+    except Exception:
+        return {}
 
 
 @router.get("/profiles", response_model=ProfileListResponse)
 async def list_profiles(collection: str | None = None) -> ProfileListResponse:
-    """List all available profiles."""
-    loader = _get_profile_loader()
-    
+    """List all available profiles/bundles."""
     try:
-        # Get all available profiles
-        all_profiles = loader.list_profiles()
+        all_bundles = _get_local_bundles()
         
         # Filter by collection if specified
         if collection:
-            all_profiles = [p for p in all_profiles if p.get("collection") == collection]
+            all_bundles = [b for b in all_bundles if b.get("collection") == collection]
         
-        # Convert to response models
-        profiles = [
-            ProfileSummary(
-                name=p.get("name", "unknown"),
-                collection=p.get("collection"),
-                description=p.get("description", ""),
-                extends=p.get("extends")
-            )
-            for p in all_profiles
-        ]
+        # Parse each bundle for metadata
+        profiles = []
+        for bundle_info in all_bundles:
+            path = Path(bundle_info["path"])
+            data = _parse_bundle_frontmatter(path)
+            bundle_meta = data.get("bundle", data.get("profile", {}))
+            
+            profiles.append(ProfileSummary(
+                name=bundle_info["name"],
+                collection=bundle_info.get("collection"),
+                description=bundle_meta.get("description", ""),
+                extends=None
+            ))
         
         return ProfileListResponse(profiles=profiles)
     except Exception as e:
@@ -64,23 +103,29 @@ async def list_profiles(collection: str | None = None) -> ProfileListResponse:
 
 @router.get("/profiles/{profile_name}", response_model=ProfileDetail)
 async def get_profile(profile_name: str) -> ProfileDetail:
-    """Get detailed information about a profile."""
-    loader = _get_profile_loader()
-    
+    """Get detailed information about a profile/bundle."""
     try:
-        # Load the profile
-        profile = loader.load_profile(profile_name)
+        # Find the bundle
+        all_bundles = _get_local_bundles()
+        bundle_info = next((b for b in all_bundles if b["name"] == profile_name), None)
         
-        # Convert to response model
+        if not bundle_info:
+            raise FileNotFoundError(f"Bundle {profile_name} not found")
+        
+        # Parse the bundle
+        path = Path(bundle_info["path"])
+        data = _parse_bundle_frontmatter(path)
+        bundle_meta = data.get("bundle", data.get("profile", {}))
+        
         return ProfileDetail(
-            name=profile.get("name", profile_name),
-            collection=profile.get("collection"),
-            description=profile.get("description", ""),
-            extends=profile.get("extends"),
-            providers=profile.get("providers", []),
-            tools=profile.get("tools", []),
-            hooks=profile.get("hooks", []),
-            agents=profile.get("agents", []),
+            name=profile_name,
+            collection=bundle_info.get("collection"),
+            description=bundle_meta.get("description", ""),
+            extends=None,
+            providers=data.get("providers", []),
+            tools=data.get("tools", []),
+            hooks=data.get("hooks", []),
+            agents=list(data.get("agents", {}).keys()) if isinstance(data.get("agents"), dict) else [],
         )
     except FileNotFoundError:
         raise HTTPException(
