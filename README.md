@@ -143,12 +143,18 @@ Select a profile via settings or the status bar.
 git clone https://github.com/microsoft/amplifier-app-vscode.git
 cd amplifier-app-vscode
 
-# Set your API key
-export ANTHROPIC_API_KEY="your-key-here"
-
 # Launch VS Code with the extension
 ./scripts/run.sh
 ```
+
+### API Key Configuration
+
+Set your API key using **either** method:
+
+| Method | How |
+|--------|-----|
+| **Environment variable** | `export ANTHROPIC_API_KEY="your-key"` before running |
+| **VS Code command** | Run `Amplifier: Set API Key` from Command Palette (Ctrl+Shift+P) |
 
 ### Run Script Options
 
