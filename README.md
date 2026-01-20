@@ -177,7 +177,23 @@ uv run python -m amplifier_vscode_server
 3. Press **F5** to launch the Extension Development Host
 4. The server starts automatically with the extension
 
-### One-liner Setup Script
+### Easy Run Script
+
+```bash
+# Launch VS Code with the extension (development mode)
+./scripts/run.sh
+
+# Build and install the VSIX to your VS Code
+./scripts/run.sh --install
+
+# Start only the backend server
+./scripts/run.sh --server
+
+# Build the VSIX without installing
+./scripts/run.sh --build
+```
+
+### Manual Setup
 
 ```bash
 # From the repo root - sets up everything
@@ -185,6 +201,13 @@ cd server && uv sync && cd ../extension && npm install && cd ..
 
 # Run server standalone (in one terminal)
 cd server && ANTHROPIC_API_KEY="your-key" uv run python -m amplifier_vscode_server
+```
+
+### Install Pre-built VSIX
+
+```bash
+# Build and install in one command
+cd extension && npm run vsix && code --install-extension ../amplifier-vscode.vsix
 ```
 
 ## Documentation
